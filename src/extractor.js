@@ -531,175 +531,141 @@ export class ApnaKhataExtractor {
     await delay(1000);
     await this.takeStepScreenshot('5_options_page_opened');
 
-    // Helper to click and confirm radio status before moving forward
-    const clickAndConfirmRadio = async (keywords, verifyNextKeyword, stepName, maxRetries = 4) => {
-      console.log(`\n👉 [Stage] Clicking and Confirming: ${stepName}...`);
-      await this.dismissModals();
+    // 👉 Stage 1: Select & Confirm "जमाबंदी की प्रतिलिपि"
+    console.log('\n👉 [Stage 1] Selecting "जमाबंदी की प्रतिलिपि"...');
+    await this.dismissModals();
 
-      for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        // 1. Try native Puppeteer click on matching radio element
-        try {
-          const radioHandles = await this.page.$$('input[type="radio"]');
-          for (const handle of radioHandles) {
-            const isMatch = await this.page.evaluate((el, kws) => {
-              const parent = el.parentElement;
-              const pText = (parent ? parent.innerText : '').trim();
-              const nText = (el.nextSibling ? el.nextSibling.textContent : '').trim();
-              const label = document.querySelector(`label[for="${el.id}"]`);
-              const lText = (label ? label.innerText : '').trim();
-              const text = `${pText} ${nText} ${lText} ${el.value} ${el.id}`;
-              return kws.some((kw) => text.includes(kw));
-            }, handle, keywords);
-
-            if (isMatch) {
-              console.log(`   [Native Click] Matched radio for ${stepName}, executing click...`);
-              await handle.click().catch(() => {});
-              break;
-            }
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const clickRes = await this.safeEvaluate(() => {
+        const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
+        for (const r of radios) {
+          const parent = (r.parentElement ? r.parentElement.innerText : '').trim();
+          const label = document.querySelector(`label[for="${r.id}"]`);
+          const lText = (label ? label.innerText : '').trim();
+          const full = `${parent} ${lText} ${r.value} ${r.id}`;
+          if (full.includes('जमाबंदी') && !full.includes('नामांतरण')) {
+            r.click();
+            return { clicked: true, id: r.id, full };
           }
-        } catch (e) {
-          console.warn('   Native radio click note:', e.message);
         }
-
-        // 2. Also trigger DOM click and ASP.NET __doPostBack in page context
-        const clickResult = await this.safeEvaluate((targetKws) => {
-          const allRadios = Array.from(document.querySelectorAll('input[type="radio"]'));
-          for (const r of allRadios) {
-            const parent = r.parentElement;
-            const pText = (parent ? parent.innerText : '').trim();
-            const nText = (r.nextSibling ? r.nextSibling.textContent : '').trim();
-            const label = document.querySelector(`label[for="${r.id}"]`);
-            const lText = (label ? label.innerText : '').trim();
-            const fullText = `${pText} ${nText} ${lText} ${r.value} ${r.id}`;
-
-            if (targetKws.some((kw) => fullText.includes(kw))) {
-              r.click();
-              r.checked = true;
-              if (r.getAttribute('onclick')) {
-                try { eval(r.getAttribute('onclick')); } catch {}
-              }
-              if (typeof r.onclick === 'function') {
-                try { r.onclick(); } catch {}
-              }
-              r.dispatchEvent(new Event('click', { bubbles: true }));
-              r.dispatchEvent(new Event('change', { bubbles: true }));
-              if (typeof __doPostBack === 'function') {
-                try { __doPostBack(r.name || r.id, ''); } catch {}
-              }
-              return { clicked: true, text: lText || pText || fullText, id: r.id, name: r.name };
-            }
+        const labels = Array.from(document.querySelectorAll('label, td, span'));
+        for (const l of labels) {
+          if (l.innerText && l.innerText.includes('जमाबंदी की प्रतिलिपि')) {
+            l.click();
+            return { clicked: true, text: l.innerText };
           }
-
-          const labels = Array.from(document.querySelectorAll('label, td, span, a'));
-          for (const l of labels) {
-            const text = (l.innerText || '').trim();
-            if (targetKws.some((kw) => text === kw || text.includes(kw))) {
-              const insideRadio = l.querySelector('input[type="radio"]');
-              if (insideRadio) {
-                insideRadio.click();
-                insideRadio.checked = true;
-                insideRadio.dispatchEvent(new Event('click', { bubbles: true }));
-                insideRadio.dispatchEvent(new Event('change', { bubbles: true }));
-                if (typeof __doPostBack === 'function') {
-                  try { __doPostBack(insideRadio.name || insideRadio.id, ''); } catch {}
-                }
-                return { clicked: true, text, id: insideRadio.id };
-              } else {
-                l.click();
-                return { clicked: true, text };
-              }
-            }
-          }
-          return { clicked: false };
-        }, keywords);
-
-        console.log(`   Attempt ${attempt}/${maxRetries} -> Click Result: ${JSON.stringify(clickResult)}`);
-        
-        await Promise.race([
-          this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 4000 }).catch(() => {}),
-          this.waitForAsyncPostback(1800),
-          delay(1800),
-        ]);
-        await delay(1000);
-        await this.dismissModals();
-
-        // 3. Strict Confirmation: Check if radio is checked AND/OR next elements appeared
-        const confirmation = await this.safeEvaluate((targetKws, vKw) => {
-          const allRadios = Array.from(document.querySelectorAll('input[type="radio"]'));
-          let isChecked = false;
-          for (const r of allRadios) {
-            const parent = r.parentElement;
-            const pText = (parent ? parent.innerText : '').trim();
-            const label = document.querySelector(`label[for="${r.id}"]`);
-            const lText = (label ? label.innerText : '').trim();
-            const fullText = `${pText} ${lText} ${r.value} ${r.id}`;
-            if (targetKws.some((kw) => fullText.includes(kw)) && r.checked) {
-              isChecked = true;
-              break;
-            }
-          }
-
-          const bodyText = (document.body ? document.body.innerText : '') || '';
-          const hasNextElement = vKw ? bodyText.includes(vKw) : false;
-          return { isChecked, hasNextElement, confirmed: isChecked || hasNextElement };
-        }, keywords, verifyNextKeyword);
-
-        console.log(`   Attempt ${attempt}/${maxRetries} -> Confirmation: ${JSON.stringify(confirmation)}`);
-
-        if (confirmation && confirmation.confirmed) {
-          console.log(`   ✅ [CONFIRMED] ${stepName} successfully verified and active!`);
-          return true;
-        } else {
-          console.log(`   ⏳ [Pending Confirmation] ${stepName} not confirmed yet, retrying...`);
-          await delay(1200);
         }
+        return { clicked: false };
+      });
+
+      console.log(`   Attempt ${attempt}/3 -> Click "जमाबंदी": ${JSON.stringify(clickRes)}`);
+      await this.waitForAsyncPostback(2000);
+      await delay(1200);
+
+      const hasVartman = await this.safeEvaluate(() => {
+        const text = (document.body ? document.body.innerText : '') || '';
+        return text.includes('वर्तमान नकल') || text.includes('वर्तमान') || text.includes('पुरातन');
+      });
+
+      if (hasVartman) {
+        console.log('   ✅ [CONFIRMED] "जमाबंदी की प्रतिलिपि" active -> "वर्तमान नकल" is now visible!');
+        break;
       }
-
-      console.warn(`⚠️ [WARNING] ${stepName} could not be confirmed after ${maxRetries} attempts.`);
-      return false;
-    };
-
-    // 1. Confirm & Select "जमाबंदी की प्रतिलिपि"
-    const step1Ok = await clickAndConfirmRadio(['जमाबंदी की प्रतिलिपि', 'जमाबंदी'], 'वर्तमान नकल', 'Radio 1: "जमाबंदी की प्रतिलिपि"');
+    }
     await this.takeStepScreenshot('6_jamabandi_selected');
-    if (!step1Ok) {
-      throw new Error('चरण "जमाबंदी की प्रतिलिपि" का चयन पुष्ट (Confirm) नहीं हो सका। कृपया पुनः प्रयास करें।');
-    }
 
-    // 2. Confirm & Select "वर्तमान नकल"
-    const step2Ok = await clickAndConfirmRadio(['वर्तमान नकल', 'वर्तमान'], 'खाता से', 'Radio 2: "वर्तमान नकल"');
+    // 👉 Stage 2: Select & Confirm "वर्तमान नकल"
+    console.log('\n👉 [Stage 2] Selecting "वर्तमान नकल"...');
+    await this.dismissModals();
+
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const clickRes = await this.safeEvaluate(() => {
+        const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
+        for (const r of radios) {
+          const parent = (r.parentElement ? r.parentElement.innerText : '').trim();
+          const label = document.querySelector(`label[for="${r.id}"]`);
+          const lText = (label ? label.innerText : '').trim();
+          const full = `${parent} ${lText} ${r.value} ${r.id}`;
+          if (full.includes('वर्तमान')) {
+            r.click();
+            return { clicked: true, id: r.id, full };
+          }
+        }
+        const labels = Array.from(document.querySelectorAll('label, td, span'));
+        for (const l of labels) {
+          if (l.innerText && l.innerText.includes('वर्तमान नकल')) {
+            l.click();
+            return { clicked: true, text: l.innerText };
+          }
+        }
+        return { clicked: false };
+      });
+
+      console.log(`   Attempt ${attempt}/3 -> Click "वर्तमान नकल": ${JSON.stringify(clickRes)}`);
+      await this.waitForAsyncPostback(2000);
+      await delay(1200);
+
+      const hasKhataRadio = await this.safeEvaluate(() => {
+        const text = (document.body ? document.body.innerText : '') || '';
+        return text.includes('खाता से') || text.includes('खाता संख्या') || text.includes('खसरा से');
+      });
+
+      if (hasKhataRadio) {
+        console.log('   ✅ [CONFIRMED] "वर्तमान नकल" active -> "खाता से" is now visible!');
+        break;
+      }
+    }
     await this.takeStepScreenshot('7_vartman_selected');
-    if (!step2Ok) {
-      throw new Error('चरण "वर्तमान नकल" का चयन पुष्ट (Confirm) नहीं हो सका।');
-    }
 
-    // 3. Confirm & Select "खाता से"
-    const step3Ok = await clickAndConfirmRadio(['खाता से', 'खाता'], 'खाता संख्या', 'Radio 3: "खाता से"');
+    // 👉 Stage 3: Select & Confirm "खाता से"
+    console.log('\n👉 [Stage 3] Selecting "खाता से"...');
+    await this.dismissModals();
+
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const clickRes = await this.safeEvaluate(() => {
+        const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
+        for (const r of radios) {
+          const parent = (r.parentElement ? r.parentElement.innerText : '').trim();
+          const label = document.querySelector(`label[for="${r.id}"]`);
+          const lText = (label ? label.innerText : '').trim();
+          const full = `${parent} ${lText} ${r.value} ${r.id}`;
+          if (full.includes('खाता') && !full.includes('खसरा') && !full.includes('नाम')) {
+            r.click();
+            return { clicked: true, id: r.id, full };
+          }
+        }
+        const labels = Array.from(document.querySelectorAll('label, td, span'));
+        for (const l of labels) {
+          if (l.innerText && (l.innerText.includes('खाता से') || l.innerText.trim() === 'खाता')) {
+            l.click();
+            return { clicked: true, text: l.innerText };
+          }
+        }
+        return { clicked: false };
+      });
+
+      console.log(`   Attempt ${attempt}/3 -> Click "खाता से": ${JSON.stringify(clickRes)}`);
+      await this.waitForAsyncPostback(2000);
+      await delay(1200);
+
+      const hasKhataSelect = await this.safeEvaluate(() => {
+        const selects = Array.from(document.querySelectorAll('select'));
+        return selects.length > 0;
+      });
+
+      if (hasKhataSelect) {
+        console.log('   ✅ [CONFIRMED] "खाता से" active -> Khata dropdown is now visible!');
+        break;
+      }
+    }
     await this.takeStepScreenshot('8_khata_radio_selected');
-    if (!step3Ok) {
-      throw new Error('चरण "खाता से" का चयन पुष्ट (Confirm) नहीं हो सका।');
-    }
 
-    console.log(`\n🎯 7. Selecting and Confirming Khata No. "${searchValue}"...`);
+    // 👉 Stage 4: Select Khata Number in dropdown
+    console.log(`\n🎯 [Stage 4] Selecting Khata No. "${searchValue}" in dropdown...`);
     await delay(800);
     await this.dismissModals();
 
-    // Select Khata number directly in <select> dropdown
-    let khataConfirmed = false;
-    for (let attempt = 1; attempt <= 6; attempt++) {
-      // Check if dropdown options are loaded
-      const hasOptions = await this.safeEvaluate(() => {
-        const selects = Array.from(document.querySelectorAll('select'));
-        return selects.some((s) => s.options && s.options.length > 1);
-      });
-
-      if (!hasOptions && attempt < 4) {
-        console.log(`   [Attempt ${attempt}/6] Waiting for Khata dropdown options to populate...`);
-        await this.waitForAsyncPostback(1500);
-        await delay(1000);
-        continue;
-      }
-
+    for (let attempt = 1; attempt <= 5; attempt++) {
       const chosen = await this.safeEvaluate((targetKhata) => {
         const cleanTarget = targetKhata.replace(/[^\d]/g, '');
         const selects = Array.from(document.querySelectorAll('select'));
@@ -724,9 +690,6 @@ export class ApnaKhataExtractor {
               }
               if (typeof select.onchange === 'function') select.onchange();
               select.dispatchEvent(new Event('change', { bubbles: true }));
-              if (typeof __doPostBack === 'function') {
-                try { __doPostBack(select.name || select.id, ''); } catch {}
-              }
               return { confirmed: true, text, id: select.id, value: opt.value };
             }
           }
@@ -736,22 +699,18 @@ export class ApnaKhataExtractor {
 
       if (chosen && chosen.confirmed) {
         console.log(`   ✅ [CONFIRMED] Khata ${searchValue} selected in dropdown: "${chosen.text}"`);
-        khataConfirmed = true;
         break;
       }
       await delay(1000);
-    }
-
-    if (!khataConfirmed) {
-      console.warn(`⚠️ [WARNING] Khata ${searchValue} was not confirmed in dropdown, continuing with postback...`);
+      await this.waitForAsyncPostback(1000);
     }
 
     await this.waitForAsyncPostback(1500);
     await delay(800);
     await this.dismissModals();
 
-    // 👉 CRUCIAL STEP: Click "नकल (सूचनार्थ)" button to trigger the table generation
-    console.log('\n👉 8. Clicking "नकल (सूचनार्थ)" button and confirming Jamabandi table render...');
+    // 👉 Stage 5: Click "नकल (सूचनार्थ)" button to trigger the table generation
+    console.log('\n👉 [Stage 5] Clicking "नकल (सूचनार्थ)" button and rendering Jamabandi table...');
     
     await this.safeEvaluate(() => {
       window.confirm = () => true;
@@ -821,7 +780,7 @@ export class ApnaKhataExtractor {
     // Wait and confirm that the Jamabandi Table is rendered on screen
     console.log('⏳ Waiting for Jamabandi Record Table to render and confirming...');
     await Promise.race([
-      this.page.waitForSelector('table tr td, table[id*="Grid"], .table, table[id*="khasra"]', { timeout: 10000 }).catch(() => {}),
+      this.page.waitForSelector('table tr td, table[id*="Grid"], .table, table[id*="khasra"]', { timeout: 15000 }).catch(() => {}),
       this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 6000 }).catch(() => {}),
       delay(3000),
     ]);
