@@ -134,7 +134,8 @@ export class ApnaKhataExtractor {
           await delay(1500);
           await this.page.waitForSelector('body', { timeout: 10000 }).catch(() => {});
         } else {
-          throw err;
+          this.log(`⚠️ Note: Evaluation catch: ${msg}`);
+          return null;
         }
       }
     }
@@ -559,7 +560,7 @@ export class ApnaKhataExtractor {
       try {
         const labelEl = await this.page.$('label[for*="Khate_se"], #ctl00_ContentPlaceHolder1_Khate_se');
         if (labelEl) {
-          await labelEl.click();
+          await labelEl.click().catch(() => {});
         }
       } catch (e) {
         this.log(`   Label click note: ${e.message}`);
@@ -634,7 +635,7 @@ export class ApnaKhataExtractor {
       try {
         const labelEl = await this.page.$('label[for*="Vartman"], label[for*="vartman"], input[id*="Vartman"], input[id*="vartman"]');
         if (labelEl) {
-          await labelEl.click();
+          await labelEl.click().catch(() => {});
         }
       } catch (e) {
         this.log(`   Label click note: ${e.message}`);
@@ -706,7 +707,7 @@ export class ApnaKhataExtractor {
       try {
         const labelEl = await this.page.$('label[for*="Khata"], label[for*="khata"], input[id*="Khata"], input[id*="khata"]');
         if (labelEl) {
-          await labelEl.click();
+          await labelEl.click().catch(() => {});
         }
       } catch (e) {
         this.log(`   Label click note: ${e.message}`);
