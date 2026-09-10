@@ -112,7 +112,7 @@ export class ApnaKhataExtractor {
     console.log(`🌐 1. Opening Homepage: ${homeUrl}...`);
     await this.page.goto(homeUrl, { waitUntil: 'domcontentloaded' });
     console.log('✅ Homepage loaded.');
-    await delay(1500);
+    await delay(500);
 
     // Dismiss popup
     console.log('🧹 Dismissing popup modal...');
@@ -126,7 +126,7 @@ export class ApnaKhataExtractor {
         el.remove();
       });
     });
-    await delay(1000);
+    await delay(500);
 
     // Click "जमाबंदी नकल" button on right sidebar
     console.log('👉 2. Clicking "जमाबंदी नकल" button...');
@@ -146,11 +146,10 @@ export class ApnaKhataExtractor {
 
     console.log('⏳ Waiting for Jamabandi Selection page to load...');
     await Promise.race([
-      this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 12000 }).catch(() => {}),
-      delay(5000),
+      this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 8000 }).catch(() => {}),
+      delay(2500),
     ]);
-
-    await delay(2000);
+    await delay(800);
     console.log(`✅ Current Page URL: ${this.page.url()}`);
   }
 
@@ -159,9 +158,9 @@ export class ApnaKhataExtractor {
    */
   async selectDistrict(districtName) {
     console.log(`\n📍 3. Selecting District: "${districtName}"...`);
-    await delay(2000);
+    await delay(800);
 
-    await this.page.waitForSelector('select, a, table', { timeout: 15000 }).catch(() => {});
+    await this.page.waitForSelector('select, a, table', { timeout: 10000 }).catch(() => {});
 
     let selectedText = await this.page.evaluate((target) => {
       const selects = Array.from(document.querySelectorAll('select'));
@@ -195,7 +194,7 @@ export class ApnaKhataExtractor {
     }
 
     console.log('⏳ Waiting for Tehsil list to load...');
-    await delay(4500);
+    await delay(1800);
   }
 
   /**
@@ -203,7 +202,7 @@ export class ApnaKhataExtractor {
    */
   async selectTehsil(tehsilName) {
     console.log(`\n🏛️ 4. Selecting Tehsil: "${tehsilName}"...`);
-    await delay(2000);
+    await delay(800);
 
     let tehsilChosen = await this.page.evaluate((target) => {
       const selects = Array.from(document.querySelectorAll('select'));
@@ -238,7 +237,7 @@ export class ApnaKhataExtractor {
     }
 
     console.log('⏳ Waiting for Village list to populate...');
-    await delay(4500);
+    await delay(1800);
   }
 
   /**
@@ -246,7 +245,7 @@ export class ApnaKhataExtractor {
    */
   async selectVillage(villageName) {
     console.log(`\n🌾 5. Selecting Village: "${villageName}"...`);
-    await delay(2000);
+    await delay(800);
 
     try {
       await this.page.evaluate(() => {
@@ -259,11 +258,9 @@ export class ApnaKhataExtractor {
           }
         }
       });
-    } catch {
-      // Ignore
-    }
+    } catch {}
 
-    await delay(3000);
+    await delay(1000);
 
     let villageSelected = await this.page.evaluate((target) => {
       const cleanTarget = target.trim();
@@ -302,12 +299,10 @@ export class ApnaKhataExtractor {
 
     if (villageSelected) {
       console.log(`✅ Selected Village: "${villageSelected.text}"`);
-    } else {
-      console.log(`👉 Please click on "${villageName}" in the browser.`);
     }
 
     console.log('⏳ Waiting for Nakal Options page to load...');
-    await delay(5000);
+    await delay(2000);
   }
 
   /**
@@ -317,13 +312,13 @@ export class ApnaKhataExtractor {
     const { searchValue } = this.config;
     console.log(`\n📌 6. Configuring Jamabandi Options for Khata ${searchValue}...`);
 
-    const waitForAsyncPostback = async (ms = 3000) => {
+    const waitForAsyncPostback = async (ms = 1500) => {
       await this.page.waitForFunction(() => {
         if (typeof Sys !== 'undefined' && Sys.WebForms && Sys.WebForms.PageRequestManager) {
           return !Sys.WebForms.PageRequestManager.getInstance().get_isInAsyncPostBack();
         }
         return true;
-      }, { timeout: 8000 }).catch(() => {});
+      }, { timeout: 6000 }).catch(() => {});
       await delay(ms);
     };
 
@@ -372,7 +367,7 @@ export class ApnaKhataExtractor {
         }
       }, targetKeywords);
 
-      await waitForAsyncPostback(2000);
+      await waitForAsyncPostback(1000);
     };
 
     // 1. Select "जमाबंदी की प्रतिलिपि"
@@ -385,7 +380,7 @@ export class ApnaKhataExtractor {
     await clickRadioByText(['खाता से', 'खाता'], 'Radio "खाता से"');
 
     console.log(`🎯 7. Opening Khata list / Selecting Khata No. "${searchValue}"...`);
-    await delay(1500);
+    await delay(800);
 
     // If "खाता चुनें" button exists, click it
     await this.page.evaluate(() => {
@@ -399,7 +394,7 @@ export class ApnaKhataExtractor {
       }
     }).catch(() => {});
 
-    await waitForAsyncPostback(2000);
+    await waitForAsyncPostback(1000);
 
     // Select Khata 560
     const chosen = await this.page.evaluate((targetKhata) => {
@@ -461,8 +456,8 @@ export class ApnaKhataExtractor {
 
     // Wait for Jamabandi table to render on page
     console.log('⏳ Waiting for Jamabandi Record Table to render...');
-    await waitForAsyncPostback(4000);
-    await delay(3000);
+    await waitForAsyncPostback(2000);
+    await delay(1000);
   }
 
   /**
@@ -471,7 +466,7 @@ export class ApnaKhataExtractor {
   async extractJamabandiData() {
     const searchValue = String(this.config.searchValue || '560').replace(/[^\d]/g, '').trim() || '560';
     console.log(`\n📊 8. Extracting complete Jamabandi record from page for Khata "${searchValue}"...`);
-    await delay(2000);
+    await delay(800);
 
     const extractedData = await this.page.evaluate((targetKhata) => {
       const cleanField = (str) => {
@@ -625,6 +620,18 @@ export class ApnaKhataExtractor {
 
       return result;
     }, searchValue);
+
+    // Capture Base64 Screenshot of rendered page
+    try {
+      const screenshotBuffer = await this.page.screenshot({
+        type: 'jpeg',
+        quality: 80,
+      });
+      extractedData.screenshotBase64 = `data:image/jpeg;base64,${screenshotBuffer.toString('base64')}`;
+      console.log('📸 Captured official web page screenshot.');
+    } catch (e) {
+      console.warn('⚠️ Screenshot capture note:', e.message);
+    }
 
     console.log('\n================ JAMABANDI RECORD EXTRACTED ================');
     console.log(`📍 Location : जिला: ${extractedData.district} | तहसील: ${extractedData.tehsil} | गाँव: ${extractedData.village}`);

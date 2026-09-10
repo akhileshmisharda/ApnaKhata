@@ -189,7 +189,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SERVER['HTTP_X_REQUESTED_WI
             </div>
 
             <!-- Khasra Table -->
-            <div>
+            <div class="mb-4">
                 <h5 class="text-primary fw-bold">🌾 खसरा एवं रकबा विवरण:</h5>
                 <div class="table-responsive">
                     <table class="table table-bordered table-hover mt-2">
@@ -206,6 +206,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SERVER['HTTP_X_REQUESTED_WI
                     </table>
                 </div>
             </div>
+
+            <!-- Official Webpage Screenshot Preview Card -->
+            <div id="screenshotCard" class="card border p-3 rounded-3 bg-light d-none">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h5 class="text-secondary fw-bold mb-0">
+                        📸 आधिकारिक पोर्टल स्क्रीनशॉट (Official Web Page Preview)
+                    </h5>
+                    <a id="downloadScreenshotBtn" href="#" download="apnakhata_jamabandi.jpg" class="btn btn-sm btn-outline-primary">
+                        💾 डाउनलोड स्क्रीनशॉट
+                    </a>
+                </div>
+                <p class="text-muted small mb-2">राजस्थान अपना खाता पोर्टल पर खाता सं. चुनने के बाद लाइव रेंडर हुआ आधिकारिक पृष्ठ:</p>
+                <div class="text-center p-2 bg-white rounded border">
+                    <img id="webScreenshotImg" src="" alt="Apna Khata Official Screenshot" class="img-fluid rounded shadow-sm border" style="max-height: 550px; width: auto;">
+                </div>
+            </div>
+
         </div>
     </div>
 
@@ -263,19 +280,19 @@ document.getElementById('extractForm').addEventListener('submit', async function
         secondsElapsed++;
         document.getElementById('timerBadge').textContent = `⏱️ ${secondsElapsed}s बीत चुके`;
 
-        if (secondsElapsed === 3) {
+        if (secondsElapsed === 2) {
             updateStep(2);
             logStatus("🌐 Connected to https://apnakhata.rajasthan.gov.in/");
-        } else if (secondsElapsed === 7) {
+        } else if (secondsElapsed === 4) {
             updateStep(3);
-            logStatus(`📍 District '${district}' and Tehsil '${tehsil}' selected. Populating villages...`);
-        } else if (secondsElapsed === 13) {
+            logStatus(`📍 District '${district}' and Tehsil '${tehsil}' selected...`);
+        } else if (secondsElapsed === 7) {
             updateStep(4);
             logStatus(`🌾 Village '${village}' matched. Opening Jamabandi options...`);
-        } else if (secondsElapsed === 19) {
+        } else if (secondsElapsed === 11) {
             updateStep(5);
-            logStatus(`🎯 Selecting Khata '${searchValue}' and reading rendered Jamabandi table...`);
-        } else if (secondsElapsed > 30 && secondsElapsed % 10 === 0) {
+            logStatus(`🎯 Selecting Khata '${searchValue}' and capturing official page screenshot...`);
+        } else if (secondsElapsed > 18 && secondsElapsed % 5 === 0) {
             logStatus("⏳ Parsing comprehensive land records from server...");
         }
     }, 1000);
@@ -300,7 +317,7 @@ document.getElementById('extractForm').addEventListener('submit', async function
 
         if (data.status === 'success' && data.data) {
             updateStep(6);
-            logStatus(`✅ SUCCESS! Jamabandi record extracted in ${secondsElapsed}s.`);
+            logStatus(`✅ SUCCESS! Jamabandi record and screenshot extracted in ${secondsElapsed}s.`);
             renderResults(data.data, searchValue);
         } else {
             throw new Error(data.message || 'Extraction failed or returned invalid response.');
@@ -361,6 +378,18 @@ function renderResults(result, searchVal) {
         });
     } else {
         tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted">कोई खसरा रिकॉर्ड नहीं मिला</td></tr>`;
+    }
+
+    // Render Screenshot if available
+    const screenshotCard = document.getElementById('screenshotCard');
+    const screenshotImg = document.getElementById('webScreenshotImg');
+    const downloadBtn = document.getElementById('downloadScreenshotBtn');
+    if (result.screenshotBase64) {
+        screenshotImg.src = result.screenshotBase64;
+        downloadBtn.href = result.screenshotBase64;
+        screenshotCard.classList.remove('d-none');
+    } else {
+        screenshotCard.classList.add('d-none');
     }
 
     document.getElementById('resultContainer').classList.remove('d-none');
