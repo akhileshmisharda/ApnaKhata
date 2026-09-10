@@ -93,6 +93,12 @@ export class ApnaKhataExtractor {
       await dialog.accept().catch(() => {});
     });
 
+    await this.page.evaluateOnNewDocument(() => {
+      window.confirm = () => true;
+      window.alert = () => true;
+      window.prompt = () => true;
+    });
+
     await this.page.setExtraHTTPHeaders({
       'Accept-Language': 'hi,en-US,en;q=0.9',
     });
@@ -636,37 +642,81 @@ export class ApnaKhataExtractor {
 
     // 👉 CRUCIAL STEP: Click "नकल (सूचनार्थ)" button to trigger the table generation
     console.log('👉 8. Clicking "नकल (सूचनार्थ)" button to render Jamabandi table...');
-    const nakalBtnClicked = await this.safeEvaluate(() => {
-      const allButtons = Array.from(
-        document.querySelectorAll('input[type="submit"], input[type="button"], button, a.btn, a')
-      );
-      for (const btn of allButtons) {
-        const val = (btn.getAttribute('value') || btn.innerText || '').trim();
-        const id = (btn.id || '').toLowerCase();
-        if (
-          val.includes('नकल (सूचनार्थ)') ||
-          val.includes('सूचनार्थ') ||
-          (val.includes('नकल') && !val.includes('ई-हस्ताक्षरित') && !val.includes('अधिकृत')) ||
-          id.includes('suchnarth') ||
-          id.includes('btnnakal')
-        ) {
-          btn.click();
-          if (typeof btn.onclick === 'function') {
-            try { btn.onclick(); } catch {}
-          }
-          return { clicked: true, text: val, id: btn.id };
-        }
-      }
-      return { clicked: false };
+    
+    // Override window.confirm in current page context
+    await this.safeEvaluate(() => {
+      window.confirm = () => true;
+      window.alert = () => true;
     });
 
-    console.log(`   Nakal button action: ${JSON.stringify(nakalBtnClicked)}`);
+    let clickedInfo = null;
+
+    // 1. Try Puppeteer native click on the button
+    try {
+      const buttonElements = await this.page.$$('input[type="submit"], input[type="button"], button, a.btn, a');
+      for (const btn of buttonElements) {
+        const text = await this.page.evaluate((el) => (el.value || el.innerText || el.id || '').trim(), btn);
+        if (
+          text.includes('नकल (सूचनार्थ)') ||
+          text.includes('सूचनार्थ') ||
+          (text.includes('नकल') && !text.includes('ई-हस्ताक्षरित') && !text.includes('अधिकृत')) ||
+          text.toLowerCase().includes('suchnarth') ||
+          text.toLowerCase().includes('btnnakal')
+        ) {
+          console.log(`   Found Nakal button: "${text}", clicking with native mouse event...`);
+          await btn.click();
+          clickedInfo = { clicked: true, text };
+          break;
+        }
+      }
+    } catch (e) {
+      console.warn('   Native click note:', e.message);
+    }
+
+    // 2. Fallback DOM click if native click didn't find it
+    if (!clickedInfo) {
+      clickedInfo = await this.safeEvaluate(() => {
+        const allButtons = Array.from(
+          document.querySelectorAll('input[type="submit"], input[type="button"], button, a.btn, a')
+        );
+        for (const btn of allButtons) {
+          const val = (btn.getAttribute('value') || btn.innerText || '').trim();
+          const id = (btn.id || '').toLowerCase();
+          if (
+            val.includes('नकल (सूचनार्थ)') ||
+            val.includes('सूचनार्थ') ||
+            (val.includes('नकल') && !val.includes('ई-हस्ताक्षरित') && !val.includes('अधिकृत')) ||
+            id.includes('suchnarth') ||
+            id.includes('btnnakal')
+          ) {
+            btn.click();
+            return { clicked: true, text: val, id: btn.id };
+          }
+        }
+        return { clicked: false };
+      });
+    }
+
+    console.log(`   Nakal button action result: ${JSON.stringify(clickedInfo)}`);
+
+    // Check if new tab was opened
+    await delay(1500);
+    const pages = await this.browser.pages();
+    if (pages.length > 1) {
+      const latestPage = pages[pages.length - 1];
+      if (latestPage !== this.page) {
+        console.log(`📑 Switched to newly opened Jamabandi tab: ${latestPage.url()}`);
+        this.page = latestPage;
+        this.page.on('dialog', async (d) => await d.accept().catch(() => {}));
+      }
+    }
 
     // Wait for Jamabandi table to render on page
     console.log('⏳ Waiting for Jamabandi Record Table to render...');
     await Promise.race([
+      this.page.waitForSelector('table tr td, table[id*="Grid"], .table, table[id*="khasra"]', { timeout: 10000 }).catch(() => {}),
       this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 6000 }).catch(() => {}),
-      delay(2000),
+      delay(3000),
     ]);
     await this.waitForAsyncPostback(2000);
     await delay(1500);
