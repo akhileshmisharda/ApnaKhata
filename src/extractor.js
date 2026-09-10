@@ -306,80 +306,110 @@ export class ApnaKhataExtractor {
   }
 
   /**
-   * Step 5: Select "खाता से" ➔ Khata 560 ➔ Table is shown directly on screen
+   * Step 5: Select "जमाबंदी की प्रतिलिपि" ➔ "वर्तमान नकल" ➔ "खाता से" ➔ Khata 560
    */
   async selectJamabandiAndKhata() {
     const { searchValue } = this.config;
-    console.log(`\n📌 6. Configuring Jamabandi Options for Khata ${searchValue}...`);
+    console.log(`\n📌 6. Configuring Jamabandi Options for Khata "${searchValue}"...`);
 
-    const waitForAsyncPostback = async (ms = 1500) => {
-      await this.page.waitForFunction(() => {
-        if (typeof Sys !== 'undefined' && Sys.WebForms && Sys.WebForms.PageRequestManager) {
-          return !Sys.WebForms.PageRequestManager.getInstance().get_isInAsyncPostBack();
-        }
-        return true;
-      }, { timeout: 6000 }).catch(() => {});
-      await delay(ms);
-    };
+    // Wait explicitly for the page radios to load
+    await this.page.waitForSelector('input[type="radio"], label, table', { timeout: 15000 }).catch(() => {});
+    await delay(1000);
 
-    const clickRadioByText = async (targetKeywords, stepName) => {
-      console.log(`👉 Selecting ${stepName}...`);
-      await this.page.evaluate((keywords) => {
-        const allRadios = Array.from(document.querySelectorAll('input[type="radio"]'));
-        for (const r of allRadios) {
-          const parent = r.parentElement;
-          const pText = (parent ? parent.innerText : '').trim();
-          const nText = (r.nextSibling ? r.nextSibling.textContent : '').trim();
-          const label = document.querySelector(`label[for="${r.id}"]`);
-          const lText = (label ? label.innerText : '').trim();
-          const fullText = `${pText} ${nText} ${lText} ${r.value} ${r.id}`;
+    const clickAndVerifyRadio = async (keywords, verifyKeywords, stepName, maxRetries = 4) => {
+      console.log(`👉 [Step] Selecting ${stepName}...`);
+      
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        const clicked = await this.page.evaluate((targetKws) => {
+          const allRadios = Array.from(document.querySelectorAll('input[type="radio"]'));
+          for (const r of allRadios) {
+            const parent = r.parentElement;
+            const pText = (parent ? parent.innerText : '').trim();
+            const nText = (r.nextSibling ? r.nextSibling.textContent : '').trim();
+            const label = document.querySelector(`label[for="${r.id}"]`);
+            const lText = (label ? label.innerText : '').trim();
+            const fullText = `${pText} ${nText} ${lText} ${r.value} ${r.id}`;
 
-          if (keywords.some((kw) => fullText.includes(kw))) {
-            r.click();
-            r.checked = true;
-            if (r.getAttribute('onclick')) {
-              try { eval(r.getAttribute('onclick')); } catch {}
-            }
-            r.dispatchEvent(new Event('click', { bubbles: true }));
-            r.dispatchEvent(new Event('change', { bubbles: true }));
-            return;
-          }
-        }
-
-        const labels = Array.from(document.querySelectorAll('label, td, span, a'));
-        for (const l of labels) {
-          const text = (l.innerText || '').trim();
-          if (keywords.some((kw) => text === kw || text.includes(kw))) {
-            const insideRadio = l.querySelector('input[type="radio"]');
-            if (insideRadio) {
-              insideRadio.click();
-              insideRadio.checked = true;
-              if (insideRadio.getAttribute('onclick')) {
-                try { eval(insideRadio.getAttribute('onclick')); } catch {}
+            if (targetKws.some((kw) => fullText.includes(kw))) {
+              r.click();
+              r.checked = true;
+              if (r.getAttribute('onclick')) {
+                try { eval(r.getAttribute('onclick')); } catch {}
               }
-              insideRadio.dispatchEvent(new Event('click', { bubbles: true }));
-              insideRadio.dispatchEvent(new Event('change', { bubbles: true }));
-            } else {
-              l.click();
+              if (typeof r.onclick === 'function') {
+                try { r.onclick(); } catch {}
+              }
+              r.dispatchEvent(new Event('click', { bubbles: true }));
+              r.dispatchEvent(new Event('change', { bubbles: true }));
+              return { success: true, text: lText || pText || fullText, id: r.id };
             }
-            return;
           }
-        }
-      }, targetKeywords);
 
-      await waitForAsyncPostback(1000);
+          const labels = Array.from(document.querySelectorAll('label, td, span, a'));
+          for (const l of labels) {
+            const text = (l.innerText || '').trim();
+            if (targetKws.some((kw) => text === kw || text.includes(kw))) {
+              const insideRadio = l.querySelector('input[type="radio"]');
+              if (insideRadio) {
+                insideRadio.click();
+                insideRadio.checked = true;
+                if (insideRadio.getAttribute('onclick')) {
+                  try { eval(insideRadio.getAttribute('onclick')); } catch {}
+                }
+                insideRadio.dispatchEvent(new Event('click', { bubbles: true }));
+                insideRadio.dispatchEvent(new Event('change', { bubbles: true }));
+                return { success: true, text, id: insideRadio.id };
+              } else {
+                l.click();
+                return { success: true, text };
+              }
+            }
+          }
+          return { success: false };
+        }, keywords);
+
+        console.log(`   Attempt ${attempt} for ${stepName}: ${JSON.stringify(clicked)}`);
+
+        // Wait for ASP.NET Postback
+        await this.page.waitForFunction(() => {
+          if (typeof Sys !== 'undefined' && Sys.WebForms && Sys.WebForms.PageRequestManager) {
+            return !Sys.WebForms.PageRequestManager.getInstance().get_isInAsyncPostBack();
+          }
+          return true;
+        }, { timeout: 5000 }).catch(() => {});
+
+        await delay(1200);
+
+        // Verify if the next expected options are visible on screen
+        if (verifyKeywords && verifyKeywords.length > 0) {
+          const isVerified = await this.page.evaluate((vKws) => {
+            const text = document.body.innerText;
+            return vKws.some((kw) => text.includes(kw));
+          }, verifyKeywords);
+
+          if (isVerified) {
+            console.log(`   ✅ Verified ${stepName} succeeded!`);
+            return true;
+          } else {
+            console.log(`   ⚠️ Verification pending for ${stepName}, retrying...`);
+          }
+        } else {
+          return true;
+        }
+      }
+      return false;
     };
 
-    // 1. Select "जमाबंदी की प्रतिलिपि"
-    await clickRadioByText(['जमाबंदी की प्रतिलिपि', 'जमाबंदी'], 'Radio "जमाबंदी की प्रतिलिपि"');
+    // 1. Select "जमाबंदी की प्रतिलिपि" -> Verify "वर्तमान नकल" appears
+    await clickAndVerifyRadio(['जमाबंदी की प्रतिलिपि', 'जमाबंदी'], ['वर्तमान नकल', 'दिनांक से', 'गत नकल'], 'Radio 1: "जमाबंदी की प्रतिलिपि"');
 
-    // 2. Select "वर्तमान नकल"
-    await clickRadioByText(['वर्तमान नकल', 'वर्तमान'], 'Radio "वर्तमान नकल"');
+    // 2. Select "वर्तमान नकल" -> Verify "खाता से" appears
+    await clickAndVerifyRadio(['वर्तमान नकल', 'वर्तमान'], ['खाता से', 'खसरा से', 'नाम से'], 'Radio 2: "वर्तमान नकल"');
 
-    // 3. Select "खाता से"
-    await clickRadioByText(['खाता से', 'खाता'], 'Radio "खाता से"');
+    // 3. Select "खाता से" -> Verify Khata selection dropdown/button appears
+    await clickAndVerifyRadio(['खाता से', 'खाता'], ['खाता', 'चुनें', 'select', '560'], 'Radio 3: "खाता से"');
 
-    console.log(`🎯 7. Opening Khata list / Selecting Khata No. "${searchValue}"...`);
+    console.log(`🎯 7. Selecting Khata No. "${searchValue}"...`);
     await delay(800);
 
     // If "खाता चुनें" button exists, click it
@@ -394,7 +424,7 @@ export class ApnaKhataExtractor {
       }
     }).catch(() => {});
 
-    await waitForAsyncPostback(1000);
+    await delay(1000);
 
     // Select Khata 560
     const chosen = await this.page.evaluate((targetKhata) => {
