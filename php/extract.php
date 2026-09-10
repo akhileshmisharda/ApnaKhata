@@ -167,8 +167,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SERVER['HTTP_X_REQUESTED_WI
                 </div>
             </div>
 
+            <!-- Selected Options Verification Badges -->
+            <div class="p-3 my-3 bg-light rounded-3 border d-flex flex-wrap gap-2 align-items-center">
+                <span class="fw-bold text-dark me-2">⚙️ चयनित विकल्प (Selected Options):</span>
+                <span class="badge bg-primary px-3 py-2">📄 नकल: जमाबंदी की प्रतिलिपि</span>
+                <span class="badge bg-info text-dark px-3 py-2">⏱️ प्रकार: वर्तमान नकल</span>
+                <span class="badge bg-success px-3 py-2">🎯 आधार: खाता से (<span id="optKhataBadge">560</span>)</span>
+            </div>
+
             <!-- Metadata -->
-            <div class="row mt-3 mb-3 text-secondary">
+            <div class="row mt-2 mb-3 text-secondary">
                 <div class="col-md-4"><strong>जिला:</strong> <span id="resDistrict"></span></div>
                 <div class="col-md-4"><strong>तहसील:</strong> <span id="resTehsil"></span></div>
                 <div class="col-md-4"><strong>गाँव:</strong> <span id="resVillage"></span></div>
@@ -187,10 +195,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SERVER['HTTP_X_REQUESTED_WI
                     <table class="table table-bordered table-hover mt-2">
                         <thead class="table-dark">
                             <tr>
-                                <th>क्र. सं.</th>
-                                <th>खाता संख्या</th>
-                                <th>खसरा संख्या</th>
-                                <th>रकबा (हेक्टेयर)</th>
+                                <th style="width: 80px;">क्र. सं.</th>
+                                <th>खसरा संख्या (Khasra No)</th>
+                                <th>रकबा / क्षेत्रफल (हेक्टेयर)</th>
                                 <th>सिंचाई साधन</th>
                                 <th>भूमि वर्गीकरण एवं लगान विवरण</th>
                             </tr>
@@ -311,7 +318,11 @@ document.getElementById('extractForm').addEventListener('submit', async function
 });
 
 function renderResults(result, searchVal) {
-    document.getElementById('resKhataBadge').textContent = result.khataNumber || searchVal;
+    const kNum = result.khataNumber || searchVal;
+    document.getElementById('resKhataBadge').textContent = kNum;
+    if (document.getElementById('optKhataBadge')) {
+        document.getElementById('optKhataBadge').textContent = kNum;
+    }
     document.getElementById('resDistrict').textContent = result.district || '-';
     document.getElementById('resTehsil').textContent = result.tehsil || '-';
     document.getElementById('resVillage').textContent = result.village || '-';
@@ -333,7 +344,7 @@ function renderResults(result, searchVal) {
         ownersList.appendChild(li);
     }
 
-    // Render Khasra Table
+    // Render Khasra Table (5 columns)
     const tbody = document.getElementById('khasraTableBody');
     tbody.innerHTML = '';
     if (result.khasraRecords && result.khasraRecords.length > 0) {
@@ -341,16 +352,15 @@ function renderResults(result, searchVal) {
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td>${idx + 1}</td>
-                <td><strong>${escapeHtml(rec.khataNo || '')}</strong></td>
-                <td><span class="badge bg-secondary">${escapeHtml(rec.khasraNo || '')}</span></td>
-                <td>${escapeHtml(rec.rakbaHectare || '')}</td>
+                <td><span class="badge bg-secondary fs-6">${escapeHtml(rec.khasraNo || '')}</span></td>
+                <td><strong>${escapeHtml(rec.rakbaHectare || '')}</strong></td>
                 <td>${escapeHtml(rec.irrigation || '-')}</td>
                 <td>${escapeHtml(rec.soilAndTax || '')}</td>
             `;
             tbody.appendChild(tr);
         });
     } else {
-        tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted">कोई खसरा रिकॉर्ड नहीं मिला</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted">कोई खसरा रिकॉर्ड नहीं मिला</td></tr>`;
     }
 
     document.getElementById('resultContainer').classList.remove('d-none');

@@ -513,9 +513,21 @@ export class ApnaKhataExtractor {
         }
       }
 
-      // 3. Extract all tables & identify Khasra rows
+      result.selectedOptions = {
+        nakalType: 'जमाबंदी की प्रतिलिपि',
+        nakalPeriod: 'वर्तमान नकल',
+        searchMode: 'खाता से',
+        khataNumber: targetKhata || '560',
+      };
+
+      // 3. Extract tables & identify Khasra rows without duplication
       const tables = Array.from(document.querySelectorAll('table'));
+      const seenKhasraKeys = new Set();
+
       tables.forEach((table, tableIndex) => {
+        // Skip outer container tables that contain nested tables
+        if (table.querySelector('table')) return;
+
         const rows = Array.from(table.querySelectorAll('tr'));
         const tableData = [];
         let headers = [];
@@ -527,41 +539,54 @@ export class ApnaKhataExtractor {
           if (ths.length > 0 && headers.length === 0) {
             headers = ths.map((th) => th.innerText.trim());
           } else if (tds.length > 0) {
-            const rowVals = tds.map((td) => td.innerText.trim());
+            const rowVals = tds.map((td) => td.innerText.trim()).filter(Boolean);
+            if (rowVals.length === 0) return;
             tableData.push(rowVals);
 
-            // Check if this row is a khasra record row
             const joinedRow = rowVals.join(' ');
-            const hasNumbers = rowVals.some(v => /^\d+(\.\d+)?$/.test(v));
-            
-            // Check for Khasra data pattern
-            if (rowVals.length >= 3 && hasNumbers && !joinedRow.includes('कुल') && !joinedRow.includes('योग') && !joinedRow.includes('खाता संख्या')) {
-              let khata = targetKhata;
+            const hasNumbers = rowVals.some((v) => /^\d+(\.\d+)?$/.test(v));
+
+            // Identify Khasra rows (ignore totals/headers)
+            if (
+              rowVals.length >= 2 &&
+              hasNumbers &&
+              !joinedRow.includes('कुल') &&
+              !joinedRow.includes('योग') &&
+              !joinedRow.includes('खसरा संख्या') &&
+              !joinedRow.includes('क्षेत्रफल')
+            ) {
               let khasra = '';
               let rakba = '';
               let irrigation = '-';
               let soilAndTax = '';
 
-              if (rowVals.length >= 6) {
-                khata = rowVals[1] || targetKhata;
-                khasra = rowVals[2] || '';
-                rakba = rowVals[3] || '';
-                irrigation = rowVals[4] || '-';
-                soilAndTax = rowVals[5] || '';
-              } else if (rowVals.length >= 4) {
-                khata = rowVals[0] || targetKhata;
-                khasra = rowVals[1] || '';
-                rakba = rowVals[2] || '';
-                soilAndTax = rowVals[3] || '';
+              if (rowVals.length === 2) {
+                khasra = rowVals[0];
+                rakba = rowVals[1];
               } else if (rowVals.length === 3) {
-                khasra = rowVals[0] || '';
-                rakba = rowVals[1] || '';
-                soilAndTax = rowVals[2] || '';
+                khasra = rowVals[0];
+                rakba = rowVals[1];
+                soilAndTax = rowVals[2];
+              } else if (rowVals.length >= 4) {
+                // If first column is serial number (e.g. 1, 2, 3) and 2nd is khasra
+                if (rowVals[0] === targetKhata) {
+                  khasra = rowVals[1];
+                  rakba = rowVals[2];
+                  irrigation = rowVals[3] || '-';
+                  soilAndTax = rowVals.slice(4).join(' ');
+                } else {
+                  khasra = rowVals[0];
+                  rakba = rowVals[1];
+                  irrigation = rowVals[2] || '-';
+                  soilAndTax = rowVals.slice(3).join(' ');
+                }
               }
 
-              if (khasra || rakba) {
+              const rowKey = `${khasra}_${rakba}_${irrigation}_${soilAndTax}`;
+              if (khasra && rakba && !seenKhasraKeys.has(rowKey)) {
+                seenKhasraKeys.add(rowKey);
                 result.khasraRecords.push({
-                  khataNo: khata,
+                  khataNo: targetKhata || '560',
                   khasraNo: khasra,
                   rakbaHectare: rakba,
                   irrigation: irrigation,
