@@ -124,10 +124,13 @@ export class ApnaKhataExtractor {
           msg.includes('Execution context was destroyed') ||
           msg.includes('Target closed') ||
           msg.includes('Cannot find context with specified id') ||
+          msg.includes('caller') ||
+          msg.includes('callee') ||
+          msg.includes('arguments') ||
           msg.includes('context') ||
           msg.includes('navigation')
         ) {
-          this.log(`⏳ Navigation detected (attempt ${attempt}/5), waiting for DOM...`);
+          this.log(`⏳ Navigation/Postback detected (attempt ${attempt}/5), waiting for DOM...`);
           await delay(1500);
           await this.page.waitForSelector('body', { timeout: 10000 }).catch(() => {});
         } else {
@@ -552,6 +555,17 @@ export class ApnaKhataExtractor {
 
       this.log(`   Attempt ${attempt}/4: Triggering selection for "जमाबंदी की प्रतिलिपि"...`);
 
+      // 1. Try Puppeteer Native Click on Label or Input
+      try {
+        const labelEl = await this.page.$('label[for*="Khate_se"], #ctl00_ContentPlaceHolder1_Khate_se');
+        if (labelEl) {
+          await labelEl.click();
+        }
+      } catch (e) {
+        this.log(`   Label click note: ${e.message}`);
+      }
+
+      // 2. Fallback via decoupled window.setTimeout postback
       await this.safeEvaluate(() => {
         const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
         const jamabandiRadio =
@@ -565,12 +579,14 @@ export class ApnaKhataExtractor {
         if (jamabandiRadio) {
           jamabandiRadio.checked = true;
           jamabandiRadio.setAttribute('checked', 'checked');
-          if (typeof __doPostBack === 'function') {
-            const target = jamabandiRadio.name || jamabandiRadio.id.replace(/_/g, '$');
-            __doPostBack(target, '');
-          } else if (jamabandiRadio.form) {
-            jamabandiRadio.form.submit();
-          }
+          window.setTimeout(function () {
+            if (typeof __doPostBack === 'function') {
+              var target = jamabandiRadio.name || jamabandiRadio.id.replace(/_/g, '$');
+              __doPostBack(target, '');
+            } else if (jamabandiRadio.form) {
+              jamabandiRadio.form.submit();
+            }
+          }, 20);
         }
       });
 
@@ -614,6 +630,17 @@ export class ApnaKhataExtractor {
 
       this.log(`   Attempt ${attempt}/4: Triggering selection for "वर्तमान नकल"...`);
 
+      // 1. Try Puppeteer Native Click on Label or Input
+      try {
+        const labelEl = await this.page.$('label[for*="Vartman"], label[for*="vartman"], input[id*="Vartman"], input[id*="vartman"]');
+        if (labelEl) {
+          await labelEl.click();
+        }
+      } catch (e) {
+        this.log(`   Label click note: ${e.message}`);
+      }
+
+      // 2. Fallback via decoupled window.setTimeout postback
       await this.safeEvaluate(() => {
         const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
         const vartmanRadio = radios.find(
@@ -626,12 +653,14 @@ export class ApnaKhataExtractor {
         if (vartmanRadio) {
           vartmanRadio.checked = true;
           vartmanRadio.setAttribute('checked', 'checked');
-          if (typeof __doPostBack === 'function') {
-            const target = vartmanRadio.name || vartmanRadio.id.replace(/_/g, '$');
-            __doPostBack(target, '');
-          } else if (vartmanRadio.form) {
-            vartmanRadio.form.submit();
-          }
+          window.setTimeout(function () {
+            if (typeof __doPostBack === 'function') {
+              var target = vartmanRadio.name || vartmanRadio.id.replace(/_/g, '$');
+              __doPostBack(target, '');
+            } else if (vartmanRadio.form) {
+              vartmanRadio.form.submit();
+            }
+          }, 20);
         }
       });
 
@@ -673,6 +702,17 @@ export class ApnaKhataExtractor {
 
       this.log(`   Attempt ${attempt}/4: Triggering selection for "खाता से"...`);
 
+      // 1. Try Puppeteer Native Click on Label or Input
+      try {
+        const labelEl = await this.page.$('label[for*="Khata"], label[for*="khata"], input[id*="Khata"], input[id*="khata"]');
+        if (labelEl) {
+          await labelEl.click();
+        }
+      } catch (e) {
+        this.log(`   Label click note: ${e.message}`);
+      }
+
+      // 2. Fallback via decoupled window.setTimeout postback
       await this.safeEvaluate(() => {
         const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
         const khataRadio = radios.find(
@@ -686,12 +726,14 @@ export class ApnaKhataExtractor {
         if (khataRadio) {
           khataRadio.checked = true;
           khataRadio.setAttribute('checked', 'checked');
-          if (typeof __doPostBack === 'function') {
-            const target = khataRadio.name || khataRadio.id.replace(/_/g, '$');
-            __doPostBack(target, '');
-          } else if (khataRadio.form) {
-            khataRadio.form.submit();
-          }
+          window.setTimeout(function () {
+            if (typeof __doPostBack === 'function') {
+              var target = khataRadio.name || khataRadio.id.replace(/_/g, '$');
+              __doPostBack(target, '');
+            } else if (khataRadio.form) {
+              khataRadio.form.submit();
+            }
+          }, 20);
         }
       });
 
@@ -740,9 +782,12 @@ export class ApnaKhataExtractor {
               }
               if (typeof select.onchange === 'function') select.onchange();
               select.dispatchEvent(new Event('change', { bubbles: true }));
-              if (typeof __doPostBack === 'function' && select.getAttribute('onchange')?.includes('__doPostBack')) {
-                __doPostBack(select.name || select.id.replace(/_/g, '$'), '');
-              }
+              window.setTimeout(function () {
+                if (typeof __doPostBack === 'function' && select.getAttribute('onchange')?.includes('__doPostBack')) {
+                  var target = select.name || select.id.replace(/_/g, '$');
+                  __doPostBack(target, '');
+                }
+              }, 20);
               return { confirmed: true, text, id: select.id, value: opt.value };
             }
           }
@@ -809,9 +854,11 @@ export class ApnaKhataExtractor {
             id.includes('btnnakal')
           ) {
             btn.click();
-            if (typeof __doPostBack === 'function') {
-              try { __doPostBack(btn.name || btn.id.replace(/_/g, '$'), ''); } catch {}
-            }
+            window.setTimeout(function () {
+              if (typeof __doPostBack === 'function') {
+                try { __doPostBack(btn.name || btn.id.replace(/_/g, '$'), ''); } catch {}
+              }
+            }, 20);
             return { clicked: true, text: val, id: btn.id };
           }
         }
