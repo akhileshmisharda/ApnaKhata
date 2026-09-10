@@ -154,146 +154,184 @@ export class ApnaKhataExtractor {
   }
 
   /**
-   * Step 2: Select District (भीलवाड़ा / Bhilwara)
+   * Step 2: Select District (भीलवाड़ा / Bhilwara) with strict confirmation
    */
   async selectDistrict(districtName) {
-    console.log(`\n📍 3. Selecting District: "${districtName}"...`);
-    await delay(800);
+    console.log(`\n📍 3. Selecting and Confirming District: "${districtName}"...`);
+    await delay(1000);
+    await this.dismissModals();
 
-    await this.page.waitForSelector('select, a, table', { timeout: 10000 }).catch(() => {});
-
-    let selectedText = await this.safeEvaluate((target) => {
-      const selects = Array.from(document.querySelectorAll('select'));
-      for (const select of selects) {
-        for (const opt of select.options) {
-          const text = opt.text.trim();
-          if (text === target || text.includes(target) || target.includes(text)) {
-            select.value = opt.value;
-            select.dispatchEvent(new Event('change', { bubbles: true }));
-            return text;
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      const selResult = await this.safeEvaluate((target) => {
+        const selects = Array.from(document.querySelectorAll('select'));
+        for (const select of selects) {
+          for (let i = 0; i < select.options.length; i++) {
+            const opt = select.options[i];
+            const text = opt.text.trim();
+            if (text === target || text.includes(target) || target.includes(text)) {
+              select.selectedIndex = i;
+              select.value = opt.value;
+              if (typeof select.onchange === 'function') select.onchange();
+              if (select.getAttribute('onchange')) {
+                try { eval(select.getAttribute('onchange')); } catch {}
+              }
+              select.dispatchEvent(new Event('input', { bubbles: true }));
+              select.dispatchEvent(new Event('change', { bubbles: true }));
+              if (typeof __doPostBack === 'function') {
+                try { __doPostBack(select.name || select.id, ''); } catch {}
+              }
+              return { success: true, text, value: opt.value, selectId: select.id };
+            }
           }
         }
-      }
+        return { success: false };
+      }, districtName);
 
-      const links = Array.from(document.querySelectorAll('table a, td a, a'));
-      for (const el of links) {
-        const text = (el.innerText || '').trim();
-        const href = el.getAttribute('href') || '';
-        if (href.includes('DistTehVillRpt')) continue;
+      console.log(`   Attempt ${attempt}/5 -> District select: ${JSON.stringify(selResult)}`);
+      await this.waitForAsyncPostback(2000);
+      await delay(1500);
 
-        if (text === target || text.includes(target)) {
-          el.click();
-          return text;
+      // Strict Confirmation: Check if Tehsil dropdown has appeared
+      const isConfirmed = await this.safeEvaluate((target) => {
+        const selects = Array.from(document.querySelectorAll('select'));
+        if (selects.length > 1) return true;
+        if (selects.length === 1 && selects[0].selectedIndex > 0) {
+          const selectedText = selects[0].options[selects[0].selectedIndex].text;
+          if (selectedText.includes(target)) return true;
         }
+        return false;
+      }, districtName);
+
+      if (isConfirmed) {
+        console.log(`   ✅ [CONFIRMED] District "${districtName}" selected and Tehsil dropdown populated!`);
+        break;
+      } else {
+        console.log(`   ⏳ [Pending Confirmation] Tehsil list not loaded yet, retrying...`);
       }
-      return null;
-    }, districtName);
-
-    if (selectedText) {
-      console.log(`✅ Selected District: "${selectedText}"`);
     }
-
-    console.log('⏳ Waiting for Tehsil list to load...');
-    await delay(1800);
   }
 
   /**
-   * Step 3: Select Tehsil (बनेड़ा / Banera)
+   * Step 3: Select Tehsil (बनेड़ा / Banera) with strict confirmation
    */
   async selectTehsil(tehsilName) {
-    console.log(`\n🏛️ 4. Selecting Tehsil: "${tehsilName}"...`);
-    await delay(800);
+    console.log(`\n🏛️ 4. Selecting and Confirming Tehsil: "${tehsilName}"...`);
+    await delay(1000);
+    await this.dismissModals();
 
-    let tehsilChosen = await this.safeEvaluate((target) => {
-      const selects = Array.from(document.querySelectorAll('select'));
-      for (const select of selects) {
-        if (select.id.toLowerCase().includes('district') && selects.length > 1) continue;
-        for (const opt of select.options) {
-          const text = opt.text.trim();
-          if (text === target || text.includes(target)) {
-            select.value = opt.value;
-            select.dispatchEvent(new Event('change', { bubbles: true }));
-            return text;
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      const selResult = await this.safeEvaluate((target) => {
+        const selects = Array.from(document.querySelectorAll('select'));
+        const tehsilSelect =
+          selects.find((s) => s.id.toLowerCase().includes('tehsil') || s.name.toLowerCase().includes('tehsil')) ||
+          selects[1] ||
+          selects[0];
+
+        if (tehsilSelect) {
+          for (let i = 0; i < tehsilSelect.options.length; i++) {
+            const opt = tehsilSelect.options[i];
+            const text = opt.text.trim();
+            if (text === target || text.includes(target)) {
+              tehsilSelect.selectedIndex = i;
+              tehsilSelect.value = opt.value;
+              if (typeof tehsilSelect.onchange === 'function') tehsilSelect.onchange();
+              if (tehsilSelect.getAttribute('onchange')) {
+                try { eval(tehsilSelect.getAttribute('onchange')); } catch {}
+              }
+              tehsilSelect.dispatchEvent(new Event('input', { bubbles: true }));
+              tehsilSelect.dispatchEvent(new Event('change', { bubbles: true }));
+              if (typeof __doPostBack === 'function') {
+                try { __doPostBack(tehsilSelect.name || tehsilSelect.id, ''); } catch {}
+              }
+              return { success: true, text, value: opt.value };
+            }
           }
         }
+        return { success: false };
+      }, tehsilName);
+
+      console.log(`   Attempt ${attempt}/5 -> Tehsil select: ${JSON.stringify(selResult)}`);
+      await this.waitForAsyncPostback(2000);
+      await delay(1500);
+
+      // Strict Confirmation: Check if Chosala Radio or Village list has appeared
+      const isConfirmed = await this.safeEvaluate(() => {
+        const bodyText = document.body.innerText;
+        const radios = document.querySelectorAll('input[type="radio"]');
+        const villageLinks = document.querySelectorAll('table a, tr a, td a');
+        return radios.length > 0 || villageLinks.length > 5 || bodyText.includes('चोसाला') || bodyText.includes('गाँव');
+      });
+
+      if (isConfirmed) {
+        console.log(`   ✅ [CONFIRMED] Tehsil "${tehsilName}" selected and village/Chosala section loaded!`);
+        break;
+      } else {
+        console.log(`   ⏳ [Pending Confirmation] Village/Chosala section not visible yet, retrying...`);
       }
-
-      const links = Array.from(document.querySelectorAll('table a, div a, td a, a'));
-      for (const link of links) {
-        const text = (link.innerText || '').trim();
-        const href = link.getAttribute('href') || '';
-        if (href.includes('DistTehVillRpt')) continue;
-
-        if (text === target || text.includes(target)) {
-          link.click();
-          return text;
-        }
-      }
-      return null;
-    }, tehsilName);
-
-    if (tehsilChosen) {
-      console.log(`✅ Selected Tehsil: "${tehsilChosen}"`);
     }
-
-    console.log('⏳ Waiting for Tehsil to settle...');
-    await this.waitForAsyncPostback(1500);
-    await delay(1000);
   }
 
   /**
-   * Step 3.5: Select "चोसाला पद्धति जमाबंदी" (Chosala Padhti Jamabandi)
+   * Step 3.5: Select "चोसाला पद्धति जमाबंदी" (Chosala Padhti Jamabandi) with strict confirmation
    */
   async selectChosalaPadhti() {
-    console.log(`\n📑 4.5. Selecting "चोसाला पद्धति जमाबंदी" (Chosala Padhti Jamabandi)...`);
+    console.log(`\n📑 4.5. Selecting and Confirming "चोसाला पद्धति जमाबंदी" (Chosala Padhti Jamabandi)...`);
     await delay(800);
+    await this.dismissModals();
 
-    const chosen = await this.safeEvaluate(() => {
-      const allRadios = Array.from(document.querySelectorAll('input[type="radio"]'));
-      for (const r of allRadios) {
-        const parent = r.parentElement;
-        const pText = (parent ? parent.innerText : '').trim();
-        const nText = (r.nextSibling ? r.nextSibling.textContent : '').trim();
-        const label = document.querySelector(`label[for="${r.id}"]`);
-        const lText = (label ? label.innerText : '').trim();
-        const fullText = `${pText} ${nText} ${lText} ${r.value} ${r.id}`;
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      const chosen = await this.safeEvaluate(() => {
+        const allRadios = Array.from(document.querySelectorAll('input[type="radio"]'));
+        for (const r of allRadios) {
+          const parent = r.parentElement;
+          const pText = (parent ? parent.innerText : '').trim();
+          const label = document.querySelector(`label[for="${r.id}"]`);
+          const lText = (label ? label.innerText : '').trim();
+          const fullText = `${pText} ${lText} ${r.value} ${r.id}`;
 
-        if (fullText.includes('चोसाला') || fullText.includes('chosala') || fullText.includes('Chosala') || (r.value && r.value.toLowerCase().includes('chosala'))) {
-          r.click();
-          r.checked = true;
-          if (r.getAttribute('onclick')) {
-            try { eval(r.getAttribute('onclick')); } catch {}
+          if (fullText.includes('चोसाला') || fullText.includes('chosala') || fullText.includes('Chosala')) {
+            r.click();
+            r.checked = true;
+            if (r.getAttribute('onclick')) {
+              try { eval(r.getAttribute('onclick')); } catch {}
+            }
+            if (typeof r.onclick === 'function') {
+              try { r.onclick(); } catch {}
+            }
+            r.dispatchEvent(new Event('click', { bubbles: true }));
+            r.dispatchEvent(new Event('change', { bubbles: true }));
+            if (typeof __doPostBack === 'function') {
+              try { __doPostBack(r.name || r.id, ''); } catch {}
+            }
+            return { clicked: true, text: lText || pText || fullText, id: r.id };
           }
-          if (typeof r.onclick === 'function') {
-            try { r.onclick(); } catch {}
-          }
-          r.dispatchEvent(new Event('click', { bubbles: true }));
-          r.dispatchEvent(new Event('change', { bubbles: true }));
-          return { success: true, text: lText || pText || fullText, id: r.id };
         }
-      }
+        return { clicked: false };
+      });
 
-      const labels = Array.from(document.querySelectorAll('label, td, span, div'));
-      for (const l of labels) {
-        const text = (l.innerText || '').trim();
-        if (text.includes('चोसाला')) {
-          const inside = l.querySelector('input[type="radio"]');
-          if (inside) {
-            inside.click();
-            inside.checked = true;
-            inside.dispatchEvent(new Event('change', { bubbles: true }));
-            return { success: true, text };
+      console.log(`   Attempt ${attempt}/4 -> Chosala radio: ${JSON.stringify(chosen)}`);
+      await this.waitForAsyncPostback(2000);
+      await delay(1200);
+
+      // Strict Confirmation: Check if Chosala is checked
+      const isConfirmed = await this.safeEvaluate(() => {
+        const allRadios = Array.from(document.querySelectorAll('input[type="radio"]'));
+        for (const r of allRadios) {
+          const parent = r.parentElement;
+          const pText = (parent ? parent.innerText : '').trim();
+          const fullText = `${pText} ${r.value} ${r.id}`;
+          if ((fullText.includes('चोसाला') || fullText.includes('chosala')) && r.checked) {
+            return true;
           }
-          l.click();
-          return { success: true, text };
         }
-      }
-      return { success: false };
-    });
+        return false;
+      });
 
-    console.log(`   Chosala Radio selection result: ${JSON.stringify(chosen)}`);
-    await this.waitForAsyncPostback(2000);
-    await delay(1200);
+      if (isConfirmed) {
+        console.log(`   ✅ [CONFIRMED] "चोसाला पद्धति जमाबंदी" radio is active and verified!`);
+        break;
+      }
+    }
   }
 
   /**
