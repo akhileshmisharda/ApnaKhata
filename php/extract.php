@@ -308,20 +308,20 @@ document.getElementById('extractForm').addEventListener('submit', async function
         secondsElapsed++;
         document.getElementById('timerBadge').textContent = `⏱️ ${secondsElapsed}s बीत चुके`;
 
-        if (secondsElapsed === 2) {
+        if (secondsElapsed === 3) {
             updateStep(2);
-            logStatus("🌐 Connected to https://apnakhata.rajasthan.gov.in/");
-        } else if (secondsElapsed === 4) {
+            logStatus("🌐 Connected to Rajasthan Apna Khata portal. Accessing Jamabandi selection...");
+        } else if (secondsElapsed === 8) {
             updateStep(3);
-            logStatus(`📍 District '${district}' and Tehsil '${tehsil}' selected...`);
-        } else if (secondsElapsed === 7) {
+            logStatus(`📍 District '${district}' & Tehsil '${tehsil}' -> Chosala Padhti Jamabandi selected...`);
+        } else if (secondsElapsed === 16) {
             updateStep(4);
-            logStatus(`🌾 Village '${village}' matched. Opening Jamabandi options...`);
-        } else if (secondsElapsed === 11) {
+            logStatus(`🌾 Village '${village}' matched. Opening Jamabandi options & selecting Khata ${searchValue}...`);
+        } else if (secondsElapsed === 26) {
             updateStep(5);
-            logStatus(`🎯 Selecting Khata '${searchValue}' and capturing official page screenshot...`);
-        } else if (secondsElapsed > 18 && secondsElapsed % 5 === 0) {
-            logStatus("⏳ Parsing comprehensive land records from server...");
+            logStatus("👉 Clicking 'नकल (सूचनार्थ)' & confirming Jamabandi record table render...");
+        } else if (secondsElapsed > 35 && secondsElapsed % 6 === 0) {
+            logStatus("⏳ Parsing comprehensive land records, Khasra details, and step screenshots...");
         }
     }, 1000);
 
