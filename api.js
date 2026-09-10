@@ -109,6 +109,10 @@ async function handleJamabandiExtraction(req, res) {
         success: false,
         status: 'error',
         message: result.error || 'Failed to extract Jamabandi record',
+        data: result.data || {
+          screenshotBase64: null,
+          stepScreenshots: {},
+        },
       });
     }
   } catch (err) {
@@ -117,6 +121,10 @@ async function handleJamabandiExtraction(req, res) {
       success: false,
       status: 'error',
       message: err.message,
+      data: {
+        screenshotBase64: null,
+        stepScreenshots: {},
+      },
     });
   }
 }

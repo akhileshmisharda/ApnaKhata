@@ -254,9 +254,10 @@ function showStepImg(stepKey, btnEl) {
     if (currentStepScreenshots && currentStepScreenshots[stepKey]) {
         imgEl.src = currentStepScreenshots[stepKey];
         dlBtn.href = currentStepScreenshots[stepKey];
-    } else if (currentStepScreenshots && currentStepScreenshots['5_table_rendered']) {
-        imgEl.src = currentStepScreenshots['5_table_rendered'];
-        dlBtn.href = currentStepScreenshots['5_table_rendered'];
+    } else if (currentStepScreenshots && (currentStepScreenshots['error_state'] || currentStepScreenshots['5_table_rendered'])) {
+        const fallback = currentStepScreenshots['error_state'] || currentStepScreenshots['5_table_rendered'];
+        imgEl.src = fallback;
+        dlBtn.href = fallback;
     }
 }
 
@@ -348,6 +349,10 @@ document.getElementById('extractForm').addEventListener('submit', async function
             logStatus(`✅ SUCCESS! Jamabandi record and screenshots extracted in ${secondsElapsed}s.`);
             renderResults(data.data, searchValue);
         } else {
+            // If server returned partial/error screenshots, display them for debugging
+            if (data.data && (data.data.stepScreenshots || data.data.screenshotBase64)) {
+                renderScreenshotsOnly(data.data);
+            }
             throw new Error(data.message || 'Extraction failed or returned invalid response.');
         }
 
@@ -361,6 +366,22 @@ document.getElementById('extractForm').addEventListener('submit', async function
         document.getElementById('btnText').textContent = 'जमाबंदी प्राप्त करें (Extract)';
     }
 });
+
+function renderScreenshotsOnly(result) {
+    currentStepScreenshots = result.stepScreenshots || {};
+    if (result.screenshotBase64 && !currentStepScreenshots['error_state']) {
+        currentStepScreenshots['error_state'] = result.screenshotBase64;
+    }
+    const screenshotCard = document.getElementById('screenshotCard');
+    screenshotCard.classList.remove('d-none');
+    
+    // Auto-select latest available screenshot
+    const keys = Object.keys(currentStepScreenshots);
+    if (keys.length > 0) {
+        const lastKey = keys[keys.length - 1];
+        showStepImg(lastKey, null);
+    }
+}
 
 function renderResults(result, searchVal) {
     const kNum = result.khataNumber || searchVal;

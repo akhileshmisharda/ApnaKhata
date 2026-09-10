@@ -762,7 +762,7 @@ export class ApnaKhataExtractor {
     await this.dismissModals();
 
     const tableConfirmed = await this.safeEvaluate(() => {
-      const text = document.body.innerText;
+      const text = (document.body ? document.body.innerText : '') || '';
       const rows = document.querySelectorAll('tr td');
       return {
         hasTable: rows.length > 0,
@@ -789,6 +789,8 @@ export class ApnaKhataExtractor {
         return str.replace(/^[:\-\s]+/, '').replace(/[:\-\s\)]+$/, '').trim();
       };
 
+      const bodyText = (document.body ? document.body.innerText : '') || '';
+
       const result = {
         extractedAt: new Date().toISOString(),
         url: window.location.href,
@@ -799,10 +801,8 @@ export class ApnaKhataExtractor {
         owners: [],
         khasraRecords: [],
         allTables: [],
-        rawText: document.body.innerText,
+        rawText: bodyText,
       };
-
-      const bodyText = document.body.innerText;
 
       // 1. Extract header metadata
       const distMatch = bodyText.match(/जिला\s*[:-]+\s*([^\t\n\r]+)/);
@@ -816,7 +816,6 @@ export class ApnaKhataExtractor {
 
       // 2. Extract Owners / Kashtkaar
       const lines = bodyText.split('\n').map((l) => l.trim()).filter(Boolean);
-      let inKashtkaarSection = false;
       for (const line of lines) {
         if (
           line.includes('काश्तकार') ||
@@ -1061,7 +1060,29 @@ export class ApnaKhataExtractor {
       return { success: true, data, files };
     } catch (error) {
       console.error('\n❌ Extraction Error:', error.message);
-      return { success: false, error: error.message };
+
+      // Capture screenshot at current error state so the user can inspect where it reached
+      let errorScreenshot = null;
+      try {
+        if (this.page) {
+          const buf = await this.page.screenshot({ type: 'jpeg', quality: 75, fullPage: false });
+          errorScreenshot = `data:image/jpeg;base64,${buf.toString('base64')}`;
+          if (!this.stepScreenshots) this.stepScreenshots = {};
+          this.stepScreenshots['error_state'] = errorScreenshot;
+        }
+      } catch (e) {
+        console.warn('Could not capture error state screenshot:', e.message);
+      }
+
+      return {
+        success: false,
+        error: error.message,
+        data: {
+          screenshotBase64: errorScreenshot,
+          stepScreenshots: this.stepScreenshots || {},
+          errorAt: new Date().toISOString(),
+        },
+      };
     } finally {
       if (this.browser && this.config.options.headless) {
         await this.browser.close();
