@@ -122,31 +122,20 @@ export class ApnaKhataExtractor {
   }
 
   async safeEvaluate(fn, ...args) {
-    for (let attempt = 1; attempt <= 5; attempt++) {
-      try {
-        return await this.page.evaluate(fn, ...args);
-      } catch (err) {
-        const msg = (err && err.message) ? err.message : String(err);
-        if (
-          msg.includes('Execution context was destroyed') ||
-          msg.includes('Target closed') ||
-          msg.includes('Cannot find context with specified id') ||
-          msg.includes('caller') ||
-          msg.includes('callee') ||
-          msg.includes('arguments') ||
-          msg.includes('context') ||
-          msg.includes('navigation')
-        ) {
-          this.log(`⏳ Navigation/Postback detected (attempt ${attempt}/5), waiting for DOM...`);
-          await delay(1500);
-          await this.page.waitForSelector('body', { timeout: 10000 }).catch(() => {});
-        } else {
-          this.log(`⚠️ Note: Evaluation catch: ${msg}`);
-          return null;
-        }
+    try {
+      return await this.page.evaluate(fn, ...args);
+    } catch (err) {
+      const msg = (err && err.message) ? err.message : String(err);
+      if (
+        msg.includes('Execution context was destroyed') ||
+        msg.includes('Cannot find context') ||
+        msg.includes('Target closed')
+      ) {
+        return { postbackTriggered: true };
       }
+      this.log(`⚠️ Note: Evaluation catch: ${msg}`);
+      return null;
     }
-    return null;
   }
 
   async dismissModals() {
@@ -266,92 +255,147 @@ export class ApnaKhataExtractor {
   }
 
   /**
-   * Step 1: Open Portal Homepage and Dismiss Modals
+   * Step 1: Open Homepage, Close Opening Screen Popup, and Click "जमाबंदी नकल"
    */
   async openPortal() {
-    this.log('🌐 1. Connecting to Rajasthan Apna Khata Portal...');
+    this.log('🌐 1. Opening Rajasthan Apna Khata Portal...');
     
     try {
       await this.page.goto('https://apnakhata.rajasthan.gov.in/', {
         waitUntil: 'domcontentloaded',
-        timeout: 20000,
+        timeout: 25000,
       });
     } catch (e) {
       this.log('   Retrying portal connect...');
-      await this.page.goto('https://apnakhata.rajasthan.gov.in/', { timeout: 25000 }).catch(() => {});
+      await this.page.goto('https://apnakhata.rajasthan.gov.in/', { timeout: 30000 }).catch(() => {});
     }
 
+    this.log('❌ Closing opening screen popup...');
     await this.dismissModals();
     await delay(300);
     await this.dismissModals();
-    this.log(`✅ Loaded Portal: ${this.page.url()}`);
+
+    this.log('📑 Clicking "जमाबंदी नकल" button (Owner_wise/VillSelAll3.aspx)...');
+    
+    // Method 1: Try native Puppeteer selector click with navigation wait
+    let navigated = false;
+    const jamabandiBtn = await this.page.$('a[href*="VillSelAll3"], a[href*="VillSel"]');
+    if (jamabandiBtn) {
+      try {
+        await Promise.all([
+          this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 10000 }).catch(() => {}),
+          jamabandiBtn.click(),
+        ]);
+        navigated = this.page.url().includes('VillSel');
+      } catch (e) {}
+    }
+
+    // Method 2: DOM Evaluate Click & window.location.href fallback
+    if (!navigated) {
+      await this.safeEvaluate(() => {
+        const links = Array.from(document.querySelectorAll('a, button, div, span'));
+        const btn = links.find((l) => {
+          const t = (l.innerText || l.textContent || '').trim();
+          const h = l.getAttribute('href') || '';
+          return t === 'जमाबंदी नकल' || t.includes('जमाबंदी नकल') || h.includes('VillSelAll3');
+        });
+        if (btn) {
+          if (btn.href) window.location.href = btn.href;
+          else btn.click();
+        } else {
+          window.location.href = 'https://apnakhata.rajasthan.gov.in/Owner_wise/VillSelAll3.aspx';
+        }
+      });
+      await this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 10000 }).catch(() => {});
+    }
+
+    // If still on homepage, directly open VillSelAll3.aspx with active session
+    if (!this.page.url().includes('VillSel')) {
+      await this.page.goto('https://apnakhata.rajasthan.gov.in/Owner_wise/VillSelAll3.aspx', {
+        waitUntil: 'domcontentloaded',
+        timeout: 15000,
+      }).catch(() => {});
+    }
+
+    await this.dismissModals();
+    await this.page.waitForSelector('select, svg, map, area, table, body', { timeout: 8000 }).catch(() => {});
+    this.log(`✅ Loaded District Selection Screen: ${this.page.url()}`);
+    await this.takeStepScreenshot('0_portal_opened');
   }
 
   /**
-   * Step 2: Select District (भीलवाड़ा / Bhilwara) from Homepage Map/Link or Dropdown
+   * Step 2: Select District (भीलवाड़ा / Bhilwara) from Map or Dropdown
    */
   async selectDistrict(districtName) {
     this.log(`📍 2. Selecting District: "${districtName}"...`);
     await this.dismissModals();
 
-    // 1. If already on VillSelAll3 and Tehsil select is ready, skip
-    const isTehsilReady = await this.safeEvaluate(() => {
-      const selects = Array.from(document.querySelectorAll('select'));
-      return selects.length > 1 || (selects.length === 1 && selects[0].id.toLowerCase().includes('tehsil'));
-    });
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      // 1. If Tehsil select is already active on VillSelAll3
+      const isTehsilReady = await this.safeEvaluate(() => {
+        const selects = Array.from(document.querySelectorAll('select'));
+        return selects.length > 1 || (selects.length === 1 && selects[0].id.toLowerCase().includes('tehsil'));
+      });
 
-    if (isTehsilReady) {
-      this.log('✅ District already selected, Tehsil ready!');
-      await this.takeStepScreenshot('1_district_selected');
-      return;
-    }
-
-    // 2. Click District from Homepage Links / Map / Dropdown
-    const clicked = await this.safeEvaluate((target) => {
-      // A. Check links, buttons, SVG areas
-      const links = Array.from(document.querySelectorAll('a, button, area, div, span, path, rect, g'));
-      for (const el of links) {
-        const text = (el.innerText || el.textContent || el.getAttribute('title') || el.getAttribute('data-name') || el.getAttribute('id') || '').trim();
-        const href = el.getAttribute('href') || '';
-        if (
-          text === target ||
-          text.includes(target) ||
-          (target === 'भीलवाड़ा' && (text.includes('Bhilwara') || href.includes('bhilwara') || href.includes('27') || el.id.includes('27')))
-        ) {
-          el.click();
-          return { clicked: true, text, tag: el.tagName };
-        }
+      if (isTehsilReady) {
+        this.log('✅ District already active, Tehsil dropdown ready!');
+        break;
       }
 
-      // B. Check select dropdown if present
-      const selects = Array.from(document.querySelectorAll('select'));
-      for (const select of selects) {
-        for (let i = 0; i < select.options.length; i++) {
-          const opt = select.options[i];
-          const text = opt.text.trim();
-          if (text === target || text.includes(target)) {
-            select.selectedIndex = i;
-            select.value = opt.value;
-            if (typeof select.onchange === 'function') select.onchange();
-            select.dispatchEvent(new Event('change', { bubbles: true }));
-            if (typeof __doPostBack === 'function') {
-              __doPostBack(select.name || select.id.replace(/_/g, '$'), '');
+      // 2. Click District from Map / Links / SVG / Dropdown
+      const clicked = await this.safeEvaluate((target) => {
+        // A. Check dropdown
+        const selects = Array.from(document.querySelectorAll('select'));
+        for (const select of selects) {
+          for (let i = 0; i < select.options.length; i++) {
+            const opt = select.options[i];
+            const text = opt.text.trim();
+            if (text === target || text.includes(target) || target.includes(text)) {
+              select.selectedIndex = i;
+              select.value = opt.value;
+              if (typeof select.onchange === 'function') select.onchange();
+              window.setTimeout(() => {
+                if (typeof __doPostBack === 'function') {
+                  __doPostBack(select.name || select.id.replace(/_/g, '$'), '');
+                }
+              }, 0);
+              return { success: true, text: opt.text, method: 'dropdown' };
             }
-            return { clicked: true, text: opt.text, method: 'dropdown' };
           }
         }
+
+        // B. Check links / SVG map paths / area
+        const links = Array.from(document.querySelectorAll('a, button, area, div, span, path, rect, g'));
+        for (const el of links) {
+          const text = (el.innerText || el.textContent || el.getAttribute('title') || el.getAttribute('data-name') || el.getAttribute('id') || '').trim();
+          const href = el.getAttribute('href') || '';
+          if (
+            text === target ||
+            text.includes(target) ||
+            (target === 'भीलवाड़ा' && (text.includes('Bhilwara') || href.includes('bhilwara') || href.includes('27') || (el.id && el.id.includes('27'))))
+          ) {
+            el.click();
+            return { success: true, text, method: 'link_or_map' };
+          }
+        }
+
+        return { success: false };
+      }, districtName);
+
+      this.log(`   Attempt ${attempt}/3 -> District selection: ${JSON.stringify(clicked)}`);
+
+      // Reactively wait for Tehsil dropdown to appear / populate
+      const isConfirmed = await this.page.waitForFunction(() => {
+        const selects = Array.from(document.querySelectorAll('select'));
+        return selects.length > 1 || (selects.length === 1 && selects[0].options.length > 1);
+      }, { polling: 50, timeout: 4000 }).catch(() => null);
+
+      if (isConfirmed) {
+        this.log(`✅ [CONFIRMED] District "${districtName}" selected and Tehsil dropdown ready!`);
+        break;
       }
-
-      return { clicked: false };
-    }, districtName);
-
-    this.log(`   District click status: ${JSON.stringify(clicked)}`);
-
-    // 3. Wait reactively for Tehsil select or VillSelAll3 page
-    await this.page.waitForFunction(() => {
-      const selects = Array.from(document.querySelectorAll('select'));
-      return selects.length > 0 && (selects.length > 1 || selects[0].options.length > 1);
-    }, { polling: 50, timeout: 6000 }).catch(() => {});
+      await delay(500);
+    }
 
     await this.dismissModals();
     await this.takeStepScreenshot('1_district_selected');
@@ -423,93 +467,42 @@ export class ApnaKhataExtractor {
     this.log('📑 4. Selecting "चोसाला पद्धति जमाबंदी"...');
     await this.dismissModals();
 
-    for (let attempt = 1; attempt <= 4; attempt++) {
-      // 1. Try Native Label Click
-      try {
-        const elements = await this.page.$$('label, td, span, input[type="radio"]');
-        for (const el of elements) {
-          const text = await this.page.evaluate((e) => (e.innerText || e.value || e.id || '').trim(), el);
-          if (text.includes('चोसाला') || text.includes('chosala')) {
-            await el.click().catch(() => {});
-            break;
+    const chosen = await this.safeEvaluate(() => {
+      // 1. Direct ID match for Chosala radio
+      const radio =
+        document.getElementById('ctl00_ContentPlaceHolder1_old_RB') ||
+        document.querySelector('input[id*="old_RB"], input[value*="old"]') ||
+        Array.from(document.querySelectorAll('input[type="radio"]')).find((r) => {
+          const p = (r.parentElement ? r.parentElement.innerText : '').trim();
+          const lbl = document.querySelector(`label[for="${r.id}"]`);
+          const lblText = lbl ? lbl.innerText : '';
+          return p.includes('चोसाला') || lblText.includes('चोसाला');
+        });
+
+      if (radio) {
+        radio.checked = true;
+        radio.setAttribute('checked', 'checked');
+        radio.click();
+        window.setTimeout(() => {
+          if (typeof __doPostBack === 'function') {
+            __doPostBack(radio.name || radio.id.replace(/_/g, '$'), '');
           }
-        }
-      } catch (e) {}
-
-      // 2. Comprehensive DOM selection and PostBack fallback
-      const chosen = await this.safeEvaluate(() => {
-        const allLabels = Array.from(document.querySelectorAll('label, td, span'));
-        for (const lbl of allLabels) {
-          const txt = (lbl.innerText || '').trim();
-          if (txt.includes('चोसाला') || txt.includes('chosala')) {
-            lbl.click();
-            const forId = lbl.getAttribute('for');
-            if (forId) {
-              const r = document.getElementById(forId);
-              if (r) {
-                r.checked = true;
-                r.setAttribute('checked', 'checked');
-                window.setTimeout(function () {
-                  if (typeof __doPostBack === 'function') {
-                    __doPostBack(r.name || r.id.replace(/_/g, '$'), '');
-                  }
-                }, 20);
-                return { clicked: true, method: 'label_for', id: r.id };
-              }
-            }
-            const rIn = lbl.querySelector('input[type="radio"]') || (lbl.parentElement ? lbl.parentElement.querySelector('input[type="radio"]') : null);
-            if (rIn) {
-              rIn.checked = true;
-              rIn.setAttribute('checked', 'checked');
-              window.setTimeout(function () {
-                if (typeof __doPostBack === 'function') {
-                  __doPostBack(rIn.name || rIn.id.replace(/_/g, '$'), '');
-                }
-              }, 20);
-              return { clicked: true, method: 'parent_radio', id: rIn.id };
-            }
-          }
-        }
-
-        const allRadios = Array.from(document.querySelectorAll('input[type="radio"]'));
-        if (allRadios.length >= 2) {
-          const r0 = allRadios[0];
-          r0.checked = true;
-          r0.setAttribute('checked', 'checked');
-          r0.click();
-          window.setTimeout(function () {
-            if (typeof __doPostBack === 'function') {
-              __doPostBack(r0.name || r0.id.replace(/_/g, '$'), '');
-            }
-          }, 20);
-          return { clicked: true, method: 'first_radio_fallback', id: r0.id };
-        }
-
-        return { clicked: false };
-      });
-
-      this.log(`   Attempt ${attempt}/4 -> Chosala radio selection: ${JSON.stringify(chosen)}`);
-      await this.waitForAsyncPostback(4000);
-
-      // Fast reactive confirmation for active state
-      const isConfirmed = await this.page.waitForFunction(() => {
-        const allRadios = Array.from(document.querySelectorAll('input[type="radio"]'));
-        for (const r of allRadios) {
-          const rowText = (r.closest('tr') ? r.closest('tr').innerText : '') || '';
-          const parentText = (r.parentElement ? r.parentElement.innerText : '') || '';
-          const full = `${rowText} ${parentText} ${r.value} ${r.id}`;
-          if ((full.includes('चोसाला') || full.includes('chosala') || r === allRadios[0]) && r.checked) {
-            return true;
-          }
-        }
-        return false;
-      }, { polling: 50, timeout: 4000 }).catch(() => null);
-
-      if (isConfirmed) {
-        this.log('✅ [CONFIRMED] "चोसाला पद्धति जमाबंदी" radio active!');
-        break;
+        }, 0);
+        return { clicked: true, id: radio.id };
       }
-    }
+
+      return { clicked: false };
+    });
+
+    this.log(`   Chosala radio selection: ${JSON.stringify(chosen)}`);
+
+    // Reactively wait for Village table links to load (50ms polling, max 4s)
+    await this.page.waitForFunction(() => {
+      const villageLinks = document.querySelectorAll('table a, tr a, td a');
+      return villageLinks.length > 5;
+    }, { polling: 50, timeout: 4000 }).catch(() => {});
+
+    await this.dismissModals();
     await this.takeStepScreenshot('3_chosala_selected');
   }
 
@@ -600,54 +593,133 @@ export class ApnaKhataExtractor {
   }
 
   /**
-   * Step 6: Directly Select "खाता से" ➔ Place Khata (525) ➔ Wait for Spinner to Disappear
+   * Step 6: Select "जमाबंदी की प्रतिलिपि" ➔ Select "खाता से" ➔ Place Khata (525) ➔ Wait for Spinner
    */
   async selectJamabandiAndKhata() {
     const searchValue = String(this.config.searchValue || '525').trim();
-    this.log(`🎯 6. Selecting "खाता से" radio directly and placing Khata "${searchValue}"...`);
+    this.log(`📌 6. Configuring Nakal Options for Khata "${searchValue}"...`);
 
     await this.dismissModals();
 
-    // 1. Click "खाता से" Radio button directly (skips 3 redundant postback stages)
-    await this.safeEvaluate(() => {
-      const allRadios = Array.from(document.querySelectorAll('input[type="radio"]'));
-      const khataRadio = allRadios.find((r) => {
-        const p = (r.parentElement ? r.parentElement.innerText : '').trim();
-        const lbl = document.querySelector(`label[for="${r.id}"]`);
-        const lblText = lbl ? lbl.innerText : '';
-        return (
-          p.includes('खाता से') ||
-          lblText.includes('खाता से') ||
-          r.id.toLowerCase().includes('rdo_khata')
-        ) && !r.id.toLowerCase().includes('khate_se');
-      });
-
-      if (khataRadio) {
-        khataRadio.checked = true;
-        khataRadio.setAttribute('checked', 'checked');
-        khataRadio.click();
-        if (typeof __doPostBack === 'function') {
-          __doPostBack(khataRadio.name || khataRadio.id.replace(/_/g, '$'), '');
-        }
-      } else {
-        // Fallback: click any label with "खाता से"
-        const allLabels = Array.from(document.querySelectorAll('label, span, td'));
-        for (const l of allLabels) {
-          if ((l.innerText || '').trim() === 'खाता से') {
-            l.click();
-            break;
+    // 1. Select Radio "जमाबंदी की प्रतिलिपि"
+    this.log('👉 Step 6a: Selecting "जमाबंदी की प्रतिलिपि" radio...');
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const clicked1 = await this.safeEvaluate(() => {
+        const allRadios = Array.from(document.querySelectorAll('input[type="radio"]'));
+        for (const r of allRadios) {
+          const p = (r.parentElement ? r.parentElement.innerText : '').trim();
+          const lbl = document.querySelector(`label[for="${r.id}"]`);
+          const lblText = lbl ? (lbl.innerText || '').trim() : '';
+          if (p.includes('जमाबंदी की प्रतिलिपि') || lblText.includes('जमाबंदी की प्रतिलिपि') || r.id.toLowerCase().includes('khate_se')) {
+            r.checked = true;
+            r.click();
+            window.setTimeout(() => {
+              if (typeof __doPostBack === 'function') {
+                __doPostBack(r.name || r.id.replace(/_/g, '$'), '');
+              }
+            }, 0);
+            return { clicked: true, id: r.id, name: r.name };
           }
         }
+        if (allRadios.length > 0) {
+          allRadios[0].checked = true;
+          allRadios[0].click();
+          window.setTimeout(() => {
+            if (typeof __doPostBack === 'function') {
+              __doPostBack(allRadios[0].name || allRadios[0].id.replace(/_/g, '$'), '');
+            }
+          }, 0);
+          return { clicked: true, id: allRadios[0].id, fallback: true };
+        }
+        return { clicked: false };
+      });
+
+      this.log(`   Step 6a status: ${JSON.stringify(clicked1)}`);
+      await this.waitForAsyncPostback(3000);
+
+      // Check if "खाता से" or "वर्तमान नकल" options appeared
+      const is6aReady = await this.safeEvaluate(() => {
+        const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
+        return radios.some((r) => {
+          const p = (r.parentElement ? r.parentElement.innerText : '').trim();
+          return p.includes('खाता से') || p.includes('वर्तमान नकल') || r.id.toLowerCase().includes('khata');
+        });
+      });
+
+      if (is6aReady) {
+        this.log('✅ [CONFIRMED] "जमाबंदी की प्रतिलिपि" active!');
+        break;
       }
-    });
+      await delay(400);
+    }
 
-    // 2. Reactively wait for Khata dropdown options to populate (50ms polling, max 3.5s)
-    await this.page.waitForFunction(() => {
-      const selects = Array.from(document.querySelectorAll('select'));
-      return selects.some((s) => s.options && s.options.length > 2);
-    }, { polling: 50, timeout: 3500 }).catch(() => {});
+    await this.dismissModals();
 
-    // 3. Select Khata Number in dropdown & set textbox, then trigger postback
+    // 2. Select Radio "खाता से"
+    this.log('👉 Step 6b: Selecting "खाता से" radio...');
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const clicked2 = await this.safeEvaluate(() => {
+        const allLabels = Array.from(document.querySelectorAll('label, td, span'));
+        for (const lbl of allLabels) {
+          const txt = (lbl.innerText || '').trim();
+          if (txt === 'खाता से' || txt.includes('खाता से')) {
+            lbl.click();
+            const forId = lbl.getAttribute('for');
+            if (forId) {
+              const r = document.getElementById(forId);
+              if (r) {
+                r.checked = true;
+                window.setTimeout(() => {
+                  if (typeof __doPostBack === 'function') {
+                    __doPostBack(r.name || r.id.replace(/_/g, '$'), '');
+                  }
+                }, 0);
+                return { clicked: true, id: r.id, method: 'label_for' };
+              }
+            }
+          }
+        }
+
+        const allRadios = Array.from(document.querySelectorAll('input[type="radio"]'));
+        const khataRadio = allRadios.find((r) => {
+          const p = (r.parentElement ? r.parentElement.innerText : '').trim();
+          return (p.includes('खाता से') || r.id.toLowerCase().includes('khata')) && !r.id.toLowerCase().includes('khate_se');
+        });
+
+        if (khataRadio) {
+          khataRadio.checked = true;
+          khataRadio.click();
+          window.setTimeout(() => {
+            if (typeof __doPostBack === 'function') {
+              __doPostBack(khataRadio.name || khataRadio.id.replace(/_/g, '$'), '');
+            }
+          }, 0);
+          return { clicked: true, id: khataRadio.id, method: 'radio' };
+        }
+
+        return { clicked: false };
+      });
+
+      this.log(`   Step 6b status: ${JSON.stringify(clicked2)}`);
+      await this.waitForAsyncPostback(3000);
+
+      // Check if Khata dropdown is populated with numbers
+      const is6bReady = await this.page.waitForFunction(() => {
+        const selects = Array.from(document.querySelectorAll('select'));
+        return selects.some((s) => s.options && s.options.length > 2);
+      }, { polling: 50, timeout: 3000 }).catch(() => null);
+
+      if (is6bReady) {
+        this.log('✅ [CONFIRMED] "खाता से" active & Khata dropdown populated!');
+        break;
+      }
+      await delay(400);
+    }
+
+    await this.dismissModals();
+
+    // 3. Select Khata Number in dropdown & set textbox
+    this.log(`👉 Step 6c: Placing Khata No. "${searchValue}"...`);
     const placed = await this.safeEvaluate((targetKhata) => {
       const cleanTarget = targetKhata.replace(/[^\d]/g, '');
       const selects = Array.from(document.querySelectorAll('select'));
@@ -671,9 +743,11 @@ export class ApnaKhataExtractor {
             select.value = opt.value;
             if (typeof select.onchange === 'function') select.onchange();
             select.dispatchEvent(new Event('change', { bubbles: true }));
-            if (typeof __doPostBack === 'function') {
-              __doPostBack(select.name || select.id.replace(/_/g, '$'), '');
-            }
+            window.setTimeout(() => {
+              if (typeof __doPostBack === 'function') {
+                __doPostBack(select.name || select.id.replace(/_/g, '$'), '');
+              }
+            }, 0);
             dropdownSet = true;
             break;
           }
@@ -693,7 +767,7 @@ export class ApnaKhataExtractor {
 
     this.log(`   Khata placement status: ${JSON.stringify(placed)}`);
 
-    // 4. Reactively wait for UpdateProgress / Loading Spinner to disappear (50ms polling, max 4.5s)
+    // 4. Reactively wait for UpdateProgress / Loading Spinner to disappear
     await this.page.waitForFunction(() => {
       if (typeof Sys !== 'undefined' && Sys.WebForms && Sys.WebForms.PageRequestManager) {
         if (Sys.WebForms.PageRequestManager.getInstance().get_isInAsyncPostBack()) {
@@ -708,7 +782,7 @@ export class ApnaKhataExtractor {
         }
       }
       return true;
-    }, { polling: 50, timeout: 4500 }).catch(() => {});
+    }, { polling: 50, timeout: 5000 }).catch(() => {});
 
     // Forcibly hide any lingering loading overlay
     await this.safeEvaluate(() => {
@@ -718,7 +792,7 @@ export class ApnaKhataExtractor {
       });
     });
 
-    await delay(150);
+    await delay(200);
     await this.dismissModals();
     await this.takeStepScreenshot('5_khata_placed');
   }
@@ -908,10 +982,8 @@ export class ApnaKhataExtractor {
     return data;
   }
 
-  async saveOutputs(data) {
-    const { outputDir, saveJson, saveCsv, savePdf, saveScreenshot } = this.config.options;
-    if (!saveJson && !saveCsv && !savePdf && !saveScreenshot) return [];
-    
+  async saveOutputFiles(data) {
+    const { outputDir = './output', saveJson = true, saveCsv = true, savePdf = true, saveScreenshot = true } = this.config.options || {};
     ensureDirectory(outputDir);
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const safeDistrict = (this.config.district || 'भीलवाड़ा').replace(/[^\w\u0900-\u097F]/g, '_');
@@ -924,28 +996,31 @@ export class ApnaKhataExtractor {
       const jsonPath = path.join(outputDir, `${baseFilename}.json`);
       fs.writeFileSync(jsonPath, JSON.stringify(data, null, 2), 'utf-8');
       savedFiles.push({ format: 'JSON', path: jsonPath });
+      this.log(`💾 JSON Data saved: ${jsonPath}`);
     }
 
     if (saveCsv) {
       const csvPath = path.join(outputDir, `${baseFilename}_khasra_details.csv`);
       const headers = ['Khata No', 'Khasra No', 'Rakba (Hectares)', 'Irrigation', 'Farm Name', 'Soil / Tax Details'];
-      const rows = data.khasraRecords.map((r) => [
-        r.khataNo,
-        r.khasraNo,
-        r.rakbaHectare,
-        r.irrigation,
-        r.farmName,
-        r.soilAndTax,
+      const rows = (data.khasraRecords || []).map((r) => [
+        r.khataNo || data.khataNumber || '',
+        r.khasraNo || '',
+        r.rakbaHectare || '',
+        r.irrigation || '-',
+        r.farmName || '',
+        r.soilAndTax || '-',
       ]);
       const csvContent = convertToCSV(headers, rows);
       fs.writeFileSync(csvPath, '\uFEFF' + csvContent, 'utf-8');
       savedFiles.push({ format: 'CSV', path: csvPath });
+      this.log(`📊 CSV Details saved: ${csvPath}`);
     }
 
     if (saveScreenshot) {
       const imgPath = path.join(outputDir, `${baseFilename}.png`);
       await this.page.screenshot({ path: imgPath, fullPage: true });
       savedFiles.push({ format: 'Screenshot', path: imgPath });
+      this.log(`📸 Screenshot saved: ${imgPath}`);
     }
 
     if (savePdf) {
@@ -953,10 +1028,15 @@ export class ApnaKhataExtractor {
         const pdfPath = path.join(outputDir, `${baseFilename}.pdf`);
         await this.page.pdf({ path: pdfPath, format: 'A4', printBackground: true });
         savedFiles.push({ format: 'PDF', path: pdfPath });
+        this.log(`📄 PDF Document saved: ${pdfPath}`);
       } catch (err) {}
     }
 
     return savedFiles;
+  }
+
+  async saveOutputs(data) {
+    return this.saveOutputFiles(data);
   }
 
   async run() {
@@ -994,24 +1074,24 @@ export class ApnaKhataExtractor {
       }
 
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
-      this.log(`📸 Khata placed, Loading icon gone & Clean Screenshot captured in ${elapsed}s! Process stopped.`);
+      this.log(`📸 Khata placed & Loading icon gone in ${elapsed}s! Extracting data...`);
 
-      const data = {
-        extractedAt: new Date().toISOString(),
-        url: this.page ? this.page.url() : '',
-        district: this.config.district || 'भीलवाड़ा',
-        tehsil: this.config.tehsil || 'बनेड़ा',
-        village: this.config.village || 'रायला - रायला - रायला',
-        khataNumber: this.config.searchValue || '525',
-        screenshotBase64: screenshotBase64,
-        stepScreenshots: this.stepScreenshots,
-        owners: [],
-        khasraRecords: [],
-        logs: this.logs || [],
-        executionTimeSeconds: elapsed,
-      };
+      // 7. Extract Jamabandi record (Kashtkaar & Khasra Table) from the active page DOM
+      const data = await this.extractJamabandiData();
+      data.screenshotBase64 = screenshotBase64;
+      data.stepScreenshots = this.stepScreenshots;
+      data.logs = this.logs || [];
+      data.executionTimeSeconds = elapsed;
 
-      return { success: true, data, files: [] };
+      this.log(`✅ Extracted ${data.owners ? data.owners.length : 0} Owners / Kashtkaar and ${data.khasraRecords ? data.khasraRecords.length : 0} Khasra records!`);
+
+      // Save output files if configured
+      let savedFiles = [];
+      try {
+        savedFiles = await this.saveOutputFiles(data);
+      } catch (err) {}
+
+      return { success: true, data, files: savedFiles };
     } catch (error) {
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
       this.log(`❌ Extraction Error (${elapsed}s): ${error.message}`);
