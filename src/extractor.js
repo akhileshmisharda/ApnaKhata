@@ -534,144 +534,129 @@ export class ApnaKhataExtractor {
     await this.dismissModals();
 
     for (let attempt = 1; attempt <= 4; attempt++) {
-      // 1. Inspect DOM
-      const domSummary = await this.safeEvaluate(() => {
-        const radios = Array.from(document.querySelectorAll('input[type="radio"]')).map((r) => ({
-          id: r.id,
-          name: r.name,
-          value: r.value,
-          checked: r.checked,
-          parentText: (r.parentElement ? r.parentElement.innerText : '').trim(),
-        }));
-        return radios;
-      });
-      this.log(`   Attempt ${attempt}/4: Found ${domSummary.length} radios: ${JSON.stringify(domSummary)}`);
-
-      // 2. Hardware-level Mouse Click on Bounding Box
-      try {
-        const elements = await this.page.$$('input[type="radio"], label, td, span');
-        for (const el of elements) {
-          const text = await this.page.evaluate((e) => (e.innerText || e.value || e.id || '').trim(), el);
-          if (text.includes(radioKeyword)) {
-            const box = await el.boundingBox();
-            if (box && box.width > 0 && box.height > 0) {
-              this.log(`   Hardware Mouse click on "${text}" at (${Math.round(box.x + box.width / 2)}, ${Math.round(box.y + box.height / 2)})`);
-              await this.page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-              break;
-            }
-          }
-        }
-      } catch (e) {
-        this.log(`   Mouse click note: ${e.message}`);
-      }
-
-      // 3. Puppeteer Handle Click
-      try {
-        const radioElements = await this.page.$$('input[type="radio"]');
-        for (const rEl of radioElements) {
-          const isMatch = await this.page.evaluate((el, kw) => {
-            const p = (el.parentElement ? el.parentElement.innerText : '').trim();
-            const l = document.querySelector(`label[for="${el.id}"]`);
-            const lt = (l ? l.innerText : '').trim();
-            const all = `${p} ${lt} ${el.value} ${el.id}`;
-            return all.includes(kw);
-          }, rEl, radioKeyword);
-
-          if (isMatch) {
-            this.log(`   Puppeteer Handle click on radio matching "${radioKeyword}"`);
-            await rEl.click().catch(() => {});
-            break;
-          }
-        }
-      } catch (e) {
-        this.log(`   Handle click note: ${e.message}`);
-      }
-
-      // 4. DOM Click + Event Dispatch
-      await this.safeEvaluate((kw) => {
-        const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
-        for (const r of radios) {
-          const p = (r.parentElement ? r.parentElement.innerText : '').trim();
-          const l = document.querySelector(`label[for="${r.id}"]`);
-          const lt = (l ? l.innerText : '').trim();
-          const all = `${p} ${lt} ${r.value} ${r.id}`;
-          if (all.includes(kw)) {
-            r.checked = true;
-            r.click();
-            if (r.onclick) try { r.onclick(); } catch {}
-            if (r.getAttribute('onclick')) try { eval(r.getAttribute('onclick')); } catch {}
-            r.dispatchEvent(new Event('click', { bubbles: true }));
-            r.dispatchEvent(new Event('change', { bubbles: true }));
-            return;
-          }
-        }
-        if (radios.length >= 2 && kw.includes('जमाबंदी')) {
-          radios[0].click();
-          radios[0].checked = true;
-        }
-      }, radioKeyword);
-
-      // Wait for ASP.NET postback or navigation
-      await Promise.race([
-        this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 4000 }).catch(() => {}),
-        this.waitForAsyncPostback(2000),
-        delay(2000),
-      ]);
-      await delay(1000);
-      await this.dismissModals();
-
-      // 5. Verification
-      const nextFound = await this.safeEvaluate((nKw) => {
+      // 1. Check if next section is already visible
+      const alreadyConfirmed = await this.safeEvaluate((nKw) => {
         const text = (document.body ? document.body.innerText : '') || '';
         const selects = document.querySelectorAll('select');
         if (nKw === 'select_dropdown') return selects.length > 0;
         return text.includes(nKw);
       }, nextKeyword);
 
-      if (nextFound) {
-        this.log(`✅ [CONFIRMED] "${radioKeyword}" confirmed! Next section "${nextKeyword}" is active.`);
+      if (alreadyConfirmed) {
+        this.log(`✅ [ALREADY PRESENT] Next section "${nextKeyword}" is already active.`);
         return true;
-      } else {
-        this.log(`⏳ Next section "${nextKeyword}" not visible yet after attempt ${attempt}/4.`);
-        if (attempt >= 2) {
-          this.log(`   Triggering explicit ASP.NET __doPostBack fallback for "${radioKeyword}"...`);
-          await this.safeEvaluate((kw) => {
-            const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
-            for (const r of radios) {
-              const p = (r.parentElement ? r.parentElement.innerText : '').trim();
-              const l = document.querySelector(`label[for="${r.id}"]`);
-              const lt = (l ? l.innerText : '').trim();
-              const all = `${p} ${lt} ${r.value} ${r.id}`;
-              if (all.includes(kw)) {
-                const onclickAttr = r.getAttribute('onclick');
-                if (onclickAttr) {
-                  try { eval(onclickAttr.replace('javascript:', '')); } catch {}
-                } else if (typeof __doPostBack === 'function') {
-                  const target = r.id ? r.id.replace(/_/g, '$') : r.name;
-                  __doPostBack(target, '');
-                }
-                return;
-              }
-            }
-            if (radios.length > 0) {
-              const r0 = radios[0];
-              const onclickAttr = r0.getAttribute('onclick');
-              if (onclickAttr) {
-                try { eval(onclickAttr.replace('javascript:', '')); } catch {}
-              } else if (typeof __doPostBack === 'function') {
-                __doPostBack(r0.id ? r0.id.replace(/_/g, '$') : r0.name, '');
-              }
-            }
-          }, radioKeyword);
-
-          await Promise.race([
-            this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 4000 }).catch(() => {}),
-            this.waitForAsyncPostback(2000),
-            delay(2000),
-          ]);
-          await delay(1000);
-        }
       }
+
+      // 2. Locate target radio and its label in DOM
+      const targetRadio = await this.safeEvaluate((kw) => {
+        const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
+        for (const r of radios) {
+          const p = (r.parentElement ? r.parentElement.innerText : '').trim();
+          const l = document.querySelector(`label[for="${r.id}"]`);
+          const lt = (l ? l.innerText : '').trim();
+          const full = `${p} ${lt} ${r.value} ${r.id}`;
+          if (full.includes(kw)) {
+            return {
+              id: r.id,
+              name: r.name,
+              value: r.value,
+              onclick: r.getAttribute('onclick') || '',
+              checked: r.checked,
+              labelText: lt || p,
+            };
+          }
+        }
+        return null;
+      }, radioKeyword);
+
+      this.log(`   Attempt ${attempt}/4: Found Target: ${JSON.stringify(targetRadio)}`);
+
+      if (targetRadio && targetRadio.id) {
+        // Attempt A: Native Puppeteer click on Label or Input
+        let clickedViaHandle = false;
+        try {
+          const labelEl = await this.page.$(`label[for="${targetRadio.id}"]`);
+          if (labelEl) {
+            this.log(`   Clicking label element for "${targetRadio.id}"...`);
+            await labelEl.click();
+            clickedViaHandle = true;
+          } else {
+            const inputEl = await this.page.$(`#${targetRadio.id}`);
+            if (inputEl) {
+              this.log(`   Clicking radio input element "#${targetRadio.id}"...`);
+              await inputEl.click();
+              clickedViaHandle = true;
+            }
+          }
+        } catch (e) {
+          this.log(`   Handle click error: ${e.message}`);
+        }
+
+        // Wait for potential page response
+        await Promise.race([
+          this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 5000 }).catch(() => {}),
+          this.waitForAsyncPostback(2000),
+          delay(2500),
+        ]);
+        await delay(800);
+
+        // Check if next section appeared
+        let isSuccess = await this.safeEvaluate((nKw) => {
+          const text = (document.body ? document.body.innerText : '') || '';
+          const selects = document.querySelectorAll('select');
+          if (nKw === 'select_dropdown') return selects.length > 0;
+          return text.includes(nKw);
+        }, nextKeyword);
+
+        if (isSuccess) {
+          this.log(`✅ [CONFIRMED] "${radioKeyword}" confirmed! Next section "${nextKeyword}" is active.`);
+          return true;
+        }
+
+        // Attempt B: Explicit ASP.NET form postback
+        this.log(`   Triggering explicit ASP.NET __doPostBack for "${targetRadio.id}"...`);
+        await this.safeEvaluate((tId, tName) => {
+          const r = document.getElementById(tId);
+          if (r) {
+            r.checked = true;
+            const oc = r.getAttribute('onclick');
+            if (oc && oc.includes('__doPostBack')) {
+              try { eval(oc.replace('javascript:', '')); return; } catch {}
+            }
+            if (typeof __doPostBack === 'function') {
+              const target = tName || tId.replace(/_/g, '$');
+              try { __doPostBack(target, ''); } catch {
+                try { __doPostBack(tId.replace(/_/g, '$'), ''); } catch {}
+              }
+            } else if (r.form) {
+              r.form.submit();
+            }
+          }
+        }, targetRadio.id, targetRadio.name);
+
+        await Promise.race([
+          this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 6000 }).catch(() => {}),
+          this.waitForAsyncPostback(2500),
+          delay(3000),
+        ]);
+        await delay(1000);
+
+        isSuccess = await this.safeEvaluate((nKw) => {
+          const text = (document.body ? document.body.innerText : '') || '';
+          const selects = document.querySelectorAll('select');
+          if (nKw === 'select_dropdown') return selects.length > 0;
+          return text.includes(nKw);
+        }, nextKeyword);
+
+        if (isSuccess) {
+          this.log(`✅ [CONFIRMED] "${radioKeyword}" confirmed via ASP.NET PostBack! Next section "${nextKeyword}" is active.`);
+          return true;
+        }
+      } else {
+        this.log(`   Radio matching "${radioKeyword}" not found in DOM.`);
+      }
+
+      await delay(1000);
     }
     return false;
   }
