@@ -6,12 +6,36 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
+// Health check / welcome message for browser GET requests
+app.get('/', (req, res) => {
+  res.json({
+    status: 'online',
+    message: 'Apna Khata Jamabandi Scraper API is running successfully!',
+    endpoint: 'POST /api/extract',
+    samplePayload: {
+      district: 'भीलवाड़ा',
+      tehsil: 'बनेड़ा',
+      village: 'रायला - रायला - रायला',
+      searchBy: 'khata',
+      searchValue: '560',
+      headless: true,
+    },
+  });
+});
+
+app.get('/api/extract', (req, res) => {
+  res.json({
+    status: 'ready',
+    message: 'Please send an HTTP POST request to this endpoint with JSON payload (district, tehsil, village, searchValue).',
+  });
+});
+
 /**
  * POST /api/extract
- * Body: { district, tehsil, village, searchBy, searchValue }
+ * Body: { district, tehsil, village, searchBy, searchValue, headless }
  */
 app.post('/api/extract', async (req, res) => {
-  console.log('\n📥 Received extraction request from PHP:');
+  console.log('\n📥 Received extraction request:');
   console.log(req.body);
 
   try {
@@ -22,7 +46,7 @@ app.post('/api/extract', async (req, res) => {
       searchBy: req.body.searchBy || 'khata',
       searchValue: String(req.body.searchValue || '560').trim(),
       options: {
-        headless: req.body.headless ?? false,
+        headless: req.body.headless ?? true, // Default to headless on cloud server
         saveJson: true,
         saveCsv: true,
         saveScreenshot: true,
@@ -56,7 +80,5 @@ app.post('/api/extract', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Apna Khata Extraction API listening on http://localhost:${PORT}`);
-  console.log(`👉 PHP can now POST to: http://localhost:${PORT}/api/extract`);
+  console.log(`🚀 Apna Khata Extraction API listening on port ${PORT}`);
 });
-

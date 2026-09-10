@@ -1,9 +1,8 @@
 <?php
 /**
  * Apna Khata (Rajasthan) Jamabandi Extractor - PHP Client
- * 
- * This PHP script communicates with the Puppeteer Extractor API (or CLI)
- * to fetch and display Jamabandi records seamlessly in PHP.
+ * Hosted on: http://fabkraft.in/
+ * Connected to Render Scraper API: https://apnakhata-juof.onrender.com/api/extract
  */
 
 header('Content-Type: text/html; charset=UTF-8');
@@ -16,17 +15,17 @@ $searchValue = $_POST['searchValue'] ?? '560';
 $resultData = null;
 $errorMessage = null;
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // API endpoint of our Node.js extractor
-    $apiUrl = 'http://localhost:3000/api/extract';
+// The Live Scraper API URL on Render
+$apiUrl = 'https://apnakhata-juof.onrender.com/api/extract';
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $payload = json_encode([
         'district'    => $district,
         'tehsil'      => $tehsil,
         'village'     => $village,
         'searchBy'    => 'khata',
         'searchValue' => $searchValue,
-        'headless'    => false // Set to true for background execution
+        'headless'    => true // Headless on Render server
     ], JSON_UNESCAPED_UNICODE);
 
     $ch = curl_init($apiUrl);
@@ -34,7 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
     curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json; charset=utf-8']);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 120);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 180);
 
     $response = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -42,9 +41,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     curl_close($ch);
 
     if ($curlError) {
-        $errorMessage = "cURL Error: " . $curlError . " (Make sure 'npm run server' is running in ApnaKhata folder)";
+        $errorMessage = "cURL Error: " . $curlError;
     } elseif ($httpCode !== 200) {
-        $errorMessage = "Extraction Failed: HTTP Status " . $httpCode . " Response: " . $response;
+        $errorMessage = "Extraction Server Error (HTTP " . $httpCode . "): " . $response;
     } else {
         $json = json_decode($response, true);
         if ($json && isset($json['status']) && $json['status'] === 'success') {
@@ -60,7 +59,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>अपना खाता - जमाबंदी एक्सट्रेक्टर (PHP)</title>
+    <title>अपना खाता - जमाबंदी एक्सट्रेक्टर (fabkraft.in)</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         body { background-color: #f4f6f9; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
@@ -74,8 +73,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     <!-- Header -->
     <div class="header-card p-4 mb-4 text-center">
-        <h2>🏛️ राजस्थान अपना खाता - जमाबंदी नकल (PHP Client)</h2>
-        <p class="mb-0">Automated Land Record Extraction using PHP & Puppeteer</p>
+        <h2>🏛️ राजस्थान अपना खाता - जमाबंदी नकल</h2>
+        <p class="mb-0">Powered by Fabkraft (PHP + Render Cloud API)</p>
     </div>
 
     <!-- Input Form -->
@@ -185,4 +184,3 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </div>
 </body>
 </html>
-
