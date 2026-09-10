@@ -235,56 +235,76 @@ export class ApnaKhataExtractor {
   }
 
   /**
-   * Step 4: Select Village (रायला - रायला - रायला)
+   * Step 4: Select Village (रायला - रायला - रायला - selects LAST entry for latest settlement)
    */
   async selectVillage(villageName) {
-    console.log(`\n🌾 5. Selecting Village: "${villageName}"...`);
+    console.log(`\n🌾 5. Selecting Village: "${villageName}" (selecting LAST entry for latest settlement)...`);
     await delay(800);
 
     try {
-      await this.page.evaluate(() => {
+      const initial = villageName.trim().charAt(0);
+      await this.page.evaluate((firstLetter) => {
         const links = Array.from(document.querySelectorAll('a, button, input[type="button"], span'));
         for (const link of links) {
           const text = (link.innerText || link.getAttribute('value') || '').trim();
-          if (text === 'र' || text === 'R') {
+          if (text === firstLetter || text === 'र' || text === 'R') {
             link.click();
             break;
           }
         }
-      });
+      }, initial);
     } catch {}
 
-    await delay(1000);
+    await delay(1200);
 
     let villageSelected = await this.page.evaluate((target) => {
       const cleanTarget = target.trim();
-      const links = Array.from(document.querySelectorAll('table a, div a, tr a, td a'));
+      const firstWord = cleanTarget.split(/[\s\-]+/)[0];
+      const links = Array.from(document.querySelectorAll('table a, div a, tr a, td a, a'));
       
-      for (const link of links) {
-        const text = (link.innerText || '').trim();
-        if (text === cleanTarget) {
-          link.click();
-          return { type: 'exact_link', text };
-        }
-      }
+      const exactMatches = [];
+      const prefixMatches = [];
 
       for (const link of links) {
         const text = (link.innerText || '').trim();
-        if (text.startsWith('रायला') || text.startsWith('Raila')) {
-          link.click();
-          return { type: 'startswith_link', text };
+        const href = link.getAttribute('href') || '';
+        if (href.includes('DistTehVillRpt')) continue;
+
+        if (text === cleanTarget) {
+          exactMatches.push({ el: link, text });
+        } else if (text.startsWith(firstWord) || (firstWord && text.includes(firstWord))) {
+          prefixMatches.push({ el: link, text });
         }
+      }
+
+      // If exact matches found, select the LAST one (latest settlement)
+      if (exactMatches.length > 0) {
+        const last = exactMatches[exactMatches.length - 1];
+        last.el.click();
+        return { type: 'exact_link_last', text: last.text, count: exactMatches.length };
+      }
+
+      // Otherwise if prefix matches found, select the LAST one
+      if (prefixMatches.length > 0) {
+        const last = prefixMatches[prefixMatches.length - 1];
+        last.el.click();
+        return { type: 'prefix_link_last', text: last.text, count: prefixMatches.length };
       }
 
       const selects = Array.from(document.querySelectorAll('select'));
       for (const select of selects) {
+        const optMatches = [];
         for (const opt of select.options) {
           const text = opt.text.trim();
-          if (text === cleanTarget || text.startsWith('रायला')) {
-            select.value = opt.value;
-            select.dispatchEvent(new Event('change', { bubbles: true }));
-            return { type: 'select', text };
+          if (text === cleanTarget || text.startsWith(firstWord)) {
+            optMatches.push(opt);
           }
+        }
+        if (optMatches.length > 0) {
+          const lastOpt = optMatches[optMatches.length - 1];
+          select.value = lastOpt.value;
+          select.dispatchEvent(new Event('change', { bubbles: true }));
+          return { type: 'select_last', text: lastOpt.text, count: optMatches.length };
         }
       }
 
@@ -292,11 +312,43 @@ export class ApnaKhataExtractor {
     }, villageName);
 
     if (villageSelected) {
-      console.log(`✅ Selected Village: "${villageSelected.text}"`);
+      console.log(`✅ Selected Village (${villageSelected.type}, total matched: ${villageSelected.count}): "${villageSelected.text}"`);
     }
 
     console.log('⏳ Waiting for Nakal Options page to load...');
     await delay(2000);
+  }
+
+  async dismissModals() {
+    await this.page.evaluate(() => {
+      // 1. Click any Close / x / Dismiss buttons on modal popups
+      const closeButtons = Array.from(document.querySelectorAll('button, a, span, input[type="button"]')).filter((el) => {
+        const text = (el.innerText || el.getAttribute('value') || '').trim().toLowerCase();
+        const ariaLabel = (el.getAttribute('aria-label') || '').toLowerCase();
+        const cls = (el.className || '').toLowerCase();
+        return (
+          text === 'close' ||
+          text === 'बंद करें' ||
+          text === '×' ||
+          text === 'x' ||
+          ariaLabel.includes('close') ||
+          cls.includes('btn-close') ||
+          cls.includes('close')
+        );
+      });
+      closeButtons.forEach((b) => {
+        try { b.click(); } catch {}
+      });
+
+      // 2. Hide any modal backdrops or "आवेदन करें" overlays
+      const overlays = document.querySelectorAll('.modal.show, .modal[style*="display: block"], .modal-backdrop, #myModal, #ModalPopup');
+      overlays.forEach((el) => {
+        try {
+          el.classList.remove('show');
+          el.style.display = 'none';
+        } catch {}
+      });
+    }).catch(() => {});
   }
 
   async waitForAsyncPostback(ms = 1200) {
@@ -321,11 +373,14 @@ export class ApnaKhataExtractor {
   }
 
   /**
-   * Step 5: Select "जमाबंदी की प्रतिलिपि" ➔ "वर्तमान नकल" ➔ "खाता से" ➔ Khata 560
+   * Step 5: Select "जमाबंदी की प्रतिलिपि" ➔ "वर्तमान नकल" ➔ "खाता से" ➔ Khata (e.g. 525 / 560)
    */
   async selectJamabandiAndKhata() {
     const { searchValue } = this.config;
     console.log(`\n📌 6. Configuring Jamabandi Options for Khata "${searchValue}"...`);
+
+    // Dismiss any initial modal popup
+    await this.dismissModals();
 
     // Wait explicitly for the page radios to load
     await this.page.waitForSelector('input[type="radio"], label, table', { timeout: 15000 }).catch(() => {});
@@ -334,6 +389,7 @@ export class ApnaKhataExtractor {
 
     const clickAndVerifyRadio = async (keywords, verifyKeywords, stepName, maxRetries = 4) => {
       console.log(`👉 [Step] Selecting ${stepName}...`);
+      await this.dismissModals();
       
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
         const clicked = await this.page.evaluate((targetKws) => {
@@ -387,6 +443,7 @@ export class ApnaKhataExtractor {
         console.log(`   Attempt ${attempt} for ${stepName}: ${JSON.stringify(clicked)}`);
 
         await this.waitForAsyncPostback(1200);
+        await this.dismissModals();
 
         // Verify if the next expected options are visible on screen
         if (verifyKeywords && verifyKeywords.length > 0) {
@@ -416,44 +473,34 @@ export class ApnaKhataExtractor {
     await clickAndVerifyRadio(['वर्तमान नकल', 'वर्तमान'], ['खाता से', 'खसरा से', 'नाम से'], 'Radio 2: "वर्तमान नकल"');
     await this.takeStepScreenshot('3_vartman_selected');
 
-    // 3. Select "खाता से" -> Verify Khata selection dropdown/button appears
-    await clickAndVerifyRadio(['खाता से', 'खाता'], ['खाता', 'चुनें', 'select', '560'], 'Radio 3: "खाता से"');
+    // 3. Select "खाता से" -> Verify Khata selection dropdown appears
+    await clickAndVerifyRadio(['खाता से', 'खाता'], ['खाता', 'चुनें', 'select', '525', '560'], 'Radio 3: "खाता से"');
     await this.takeStepScreenshot('4_khata_selected');
 
-    console.log(`🎯 7. Selecting Khata No. "${searchValue}"...`);
+    console.log(`🎯 7. Selecting Khata No. "${searchValue}" from dropdown...`);
     await delay(800);
+    await this.dismissModals();
 
-    // If "खाता चुनें" button exists, click it
-    await this.page.evaluate(() => {
-      const buttons = Array.from(document.querySelectorAll('input[type="button"], input[type="submit"], button, a'));
-      for (const b of buttons) {
-        const text = (b.innerText || b.getAttribute('value') || '').trim();
-        if (text.includes('खाता') && (text.includes('चुनें') || text.includes('सूची') || text.includes('देखें') || text.includes('Select'))) {
-          b.click();
-          break;
-        }
-      }
-    }).catch(() => {});
-
-    await delay(1000);
-
-    // Select Khata 560
+    // Select Khata number directly in <select> dropdown (avoid clicking input boxes that trigger "आवेदन करें" modal)
     const chosen = await this.page.evaluate((targetKhata) => {
-      // 1. Check all <select> dropdowns
+      const cleanTarget = targetKhata.replace(/[^\d]/g, '');
+
+      // 1. Check all <select> dropdowns on page
       const selects = Array.from(document.querySelectorAll('select'));
       for (const select of selects) {
         for (const opt of select.options) {
           const text = opt.text.trim();
           const val = opt.value.trim();
-          const cleanText = text.replace(/[^\d]/g, '');
-          const cleanVal = val.replace(/[^\d]/g, '');
+          const cleanOptText = text.replace(/[^\d]/g, '');
+          const cleanOptVal = val.replace(/[^\d]/g, '');
+
           if (
-            cleanText === targetKhata ||
-            cleanVal === targetKhata ||
+            cleanOptText === cleanTarget ||
+            cleanOptVal === cleanTarget ||
             text === targetKhata ||
             val === targetKhata ||
-            text.startsWith(targetKhata + ' ') ||
-            text.startsWith(targetKhata + '-')
+            text.startsWith(cleanTarget + ' ') ||
+            text.startsWith(cleanTarget + '-')
           ) {
             select.value = opt.value;
             if (select.getAttribute('onchange')) {
@@ -466,27 +513,14 @@ export class ApnaKhataExtractor {
         }
       }
 
-      // 2. Check table links / popup items / modal list
+      // 2. Check table / popup link items if dropdown was not used
       const elements = Array.from(document.querySelectorAll('table a, .modal a, .popup a, td a, tr td a, td, a'));
       for (const el of elements) {
         const text = (el.innerText || '').trim();
         const cleanElText = text.replace(/[^\d]/g, '');
-        if (text === targetKhata || cleanElText === targetKhata) {
+        if (cleanElText === cleanTarget) {
           el.click();
           return { type: 'link_click', text };
-        }
-      }
-
-      // 3. Check text inputs
-      const inputs = Array.from(document.querySelectorAll('input[type="text"], input[type="number"]'));
-      for (const inp of inputs) {
-        const id = (inp.id || '').toLowerCase();
-        const name = (inp.name || '').toLowerCase();
-        if (id.includes('khata') || name.includes('khata') || id.includes('search') || name.includes('txt')) {
-          inp.value = targetKhata;
-          inp.dispatchEvent(new Event('input', { bubbles: true }));
-          inp.dispatchEvent(new Event('change', { bubbles: true }));
-          return { type: 'text_input', text: targetKhata };
         }
       }
 
@@ -495,7 +529,10 @@ export class ApnaKhataExtractor {
 
     console.log(`✅ Khata selection result: ${JSON.stringify(chosen)}`);
     await this.waitForAsyncPostback(1500);
-    await delay(1000);
+    await delay(800);
+
+    // Dismiss any modal popup that might have opened
+    await this.dismissModals();
 
     // 👉 CRUCIAL STEP: Click "नकल (सूचनार्थ)" button to trigger the table generation
     console.log('👉 8. Clicking "नकल (सूचनार्थ)" button to render Jamabandi table...');
@@ -529,6 +566,7 @@ export class ApnaKhataExtractor {
     console.log('⏳ Waiting for Jamabandi Record Table to render...');
     await this.waitForAsyncPostback(3000);
     await delay(2000);
+    await this.dismissModals();
     await this.takeStepScreenshot('5_table_rendered');
   }
 
