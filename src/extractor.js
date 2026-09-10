@@ -451,7 +451,8 @@ export class ApnaKhataExtractor {
    * Step 6: Extract structured Jamabandi Record directly from this table
    */
   async extractJamabandiData() {
-    console.log('\n📊 8. Extracting complete Jamabandi record from page...');
+    const searchValue = String(this.config.searchValue || '560').trim();
+    console.log(`\n📊 8. Extracting complete Jamabandi record from page for Khata "${searchValue}"...`);
     await delay(2000);
 
     const extractedData = await this.page.evaluate((targetKhata) => {
