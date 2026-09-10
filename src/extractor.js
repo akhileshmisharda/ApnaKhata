@@ -153,7 +153,7 @@ export class ApnaKhataExtractor {
     try {
       await this.safeEvaluate(() => {
         // 1. Click any Close / x / Dismiss buttons on modal popups
-        const closeButtons = Array.from(document.querySelectorAll('button, a, span, input[type="button"]')).filter((el) => {
+        const closeButtons = Array.from(document.querySelectorAll('button, a, span, input[type="button"], .close-icon')).filter((el) => {
           const text = (el.innerText || el.getAttribute('value') || '').trim().toLowerCase();
           const ariaLabel = (el.getAttribute('aria-label') || '').toLowerCase();
           const cls = (el.className || '').toLowerCase();
@@ -164,15 +164,16 @@ export class ApnaKhataExtractor {
             text === 'x' ||
             ariaLabel.includes('close') ||
             cls.includes('btn-close') ||
-            cls.includes('close')
+            cls.includes('close') ||
+            cls.includes('close-icon')
           );
         });
         closeButtons.forEach((b) => {
           try { b.click(); } catch {}
         });
 
-        // 2. Hide any modal backdrops or "आवेदन करें" overlays
-        const overlays = document.querySelectorAll('.modal.show, .modal[style*="display: block"], .modal-backdrop, #myModal, #ModalPopup');
+        // 2. Hide any modal backdrops or popups
+        const overlays = document.querySelectorAll('.custom-popup, .popup-content, .modal.show, .modal[style*="display: block"], .modal-backdrop, #myModal, #ModalPopup, .test, .back');
         overlays.forEach((el) => {
           try {
             el.classList.remove('show');
@@ -265,85 +266,94 @@ export class ApnaKhataExtractor {
   }
 
   /**
-   * Step 1: Direct navigation to Jamabandi Selection page
+   * Step 1: Open Portal Homepage and Dismiss Modals
    */
   async openPortal() {
-    const directUrl = 'https://apnakhata.rajasthan.gov.in/Owner_wise/VillSelAll3.aspx';
-    this.log(`🌐 1. Opening Jamabandi Portal directly: ${directUrl}...`);
+    this.log('🌐 1. Connecting to Rajasthan Apna Khata Portal...');
     
     try {
-      await this.page.goto(directUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
-    } catch (e) {
-      this.log('   Fallback: Opening via Homepage...');
-      await this.page.goto('https://apnakhata.rajasthan.gov.in/', { waitUntil: 'domcontentloaded', timeout: 20000 });
-      await this.dismissModals();
-      await this.safeEvaluate(() => {
-        const link = Array.from(document.querySelectorAll('a')).find(a => (a.innerText || '').includes('जमाबंदी नकल'));
-        if (link) link.click();
-        else window.location.href = 'https://apnakhata.rajasthan.gov.in/Owner_wise/VillSelAll3.aspx';
+      await this.page.goto('https://apnakhata.rajasthan.gov.in/', {
+        waitUntil: 'domcontentloaded',
+        timeout: 20000,
       });
-      await this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 10000 }).catch(() => {});
+    } catch (e) {
+      this.log('   Retrying portal connect...');
+      await this.page.goto('https://apnakhata.rajasthan.gov.in/', { timeout: 25000 }).catch(() => {});
     }
 
     await this.dismissModals();
-    await this.page.waitForSelector('select', { timeout: 10000 }).catch(() => {});
-    this.log(`✅ Loaded: ${this.page.url()}`);
+    await delay(300);
+    await this.dismissModals();
+    this.log(`✅ Loaded Portal: ${this.page.url()}`);
   }
 
   /**
-   * Step 2: Select District (भीलवाड़ा / Bhilwara)
+   * Step 2: Select District (भीलवाड़ा / Bhilwara) from Homepage Map/Link or Dropdown
    */
   async selectDistrict(districtName) {
     this.log(`📍 2. Selecting District: "${districtName}"...`);
     await this.dismissModals();
 
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      const selResult = await this.safeEvaluate((target) => {
-        const selects = Array.from(document.querySelectorAll('select'));
-        for (const select of selects) {
-          for (let i = 0; i < select.options.length; i++) {
-            const opt = select.options[i];
-            const text = opt.text.trim();
-            if (text === target || text.includes(target) || target.includes(text)) {
-              select.selectedIndex = i;
-              select.value = opt.value;
-              if (typeof select.onchange === 'function') select.onchange();
-              if (select.getAttribute('onchange')) {
-                try { eval(select.getAttribute('onchange')); } catch {}
-              }
-              select.dispatchEvent(new Event('input', { bubbles: true }));
-              select.dispatchEvent(new Event('change', { bubbles: true }));
-              window.setTimeout(function () {
-                if (typeof __doPostBack === 'function') {
-                  __doPostBack(select.name || select.id.replace(/_/g, '$'), '');
-                }
-              }, 20);
-              return { success: true, text, value: opt.value, selectId: select.id };
+    // 1. If already on VillSelAll3 and Tehsil select is ready, skip
+    const isTehsilReady = await this.safeEvaluate(() => {
+      const selects = Array.from(document.querySelectorAll('select'));
+      return selects.length > 1 || (selects.length === 1 && selects[0].id.toLowerCase().includes('tehsil'));
+    });
+
+    if (isTehsilReady) {
+      this.log('✅ District already selected, Tehsil ready!');
+      await this.takeStepScreenshot('1_district_selected');
+      return;
+    }
+
+    // 2. Click District from Homepage Links / Map / Dropdown
+    const clicked = await this.safeEvaluate((target) => {
+      // A. Check links, buttons, SVG areas
+      const links = Array.from(document.querySelectorAll('a, button, area, div, span, path, rect, g'));
+      for (const el of links) {
+        const text = (el.innerText || el.textContent || el.getAttribute('title') || el.getAttribute('data-name') || el.getAttribute('id') || '').trim();
+        const href = el.getAttribute('href') || '';
+        if (
+          text === target ||
+          text.includes(target) ||
+          (target === 'भीलवाड़ा' && (text.includes('Bhilwara') || href.includes('bhilwara') || href.includes('27') || el.id.includes('27')))
+        ) {
+          el.click();
+          return { clicked: true, text, tag: el.tagName };
+        }
+      }
+
+      // B. Check select dropdown if present
+      const selects = Array.from(document.querySelectorAll('select'));
+      for (const select of selects) {
+        for (let i = 0; i < select.options.length; i++) {
+          const opt = select.options[i];
+          const text = opt.text.trim();
+          if (text === target || text.includes(target)) {
+            select.selectedIndex = i;
+            select.value = opt.value;
+            if (typeof select.onchange === 'function') select.onchange();
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+            if (typeof __doPostBack === 'function') {
+              __doPostBack(select.name || select.id.replace(/_/g, '$'), '');
             }
+            return { clicked: true, text: opt.text, method: 'dropdown' };
           }
         }
-        return { success: false };
-      }, districtName);
-
-      this.log(`   Attempt ${attempt}/3 -> District selection: ${JSON.stringify(selResult)}`);
-      await this.waitForAsyncPostback(4000);
-
-      // Fast reactive confirmation for Tehsil dropdown to appear
-      const isConfirmed = await this.page.waitForFunction((target) => {
-        const selects = Array.from(document.querySelectorAll('select'));
-        if (selects.length > 1) return true;
-        if (selects.length === 1 && selects[0].selectedIndex > 0) {
-          const selectedText = selects[0].options[selects[0].selectedIndex].text;
-          if (selectedText.includes(target)) return true;
-        }
-        return false;
-      }, { polling: 50, timeout: 4000 }, districtName).catch(() => null);
-
-      if (isConfirmed) {
-        this.log(`✅ [CONFIRMED] District "${districtName}" selected and Tehsil dropdown ready!`);
-        break;
       }
-    }
+
+      return { clicked: false };
+    }, districtName);
+
+    this.log(`   District click status: ${JSON.stringify(clicked)}`);
+
+    // 3. Wait reactively for Tehsil select or VillSelAll3 page
+    await this.page.waitForFunction(() => {
+      const selects = Array.from(document.querySelectorAll('select'));
+      return selects.length > 0 && (selects.length > 1 || selects[0].options.length > 1);
+    }, { polling: 50, timeout: 6000 }).catch(() => {});
+
+    await this.dismissModals();
     await this.takeStepScreenshot('1_district_selected');
   }
 
