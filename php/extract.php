@@ -446,6 +446,12 @@ function renderResults(result, searchVal) {
         ownersList.appendChild(li);
     }
 
+    // Update Total Khasra Badge
+    const totalCount = result.khasraRecords ? result.khasraRecords.length : 0;
+    if (document.getElementById('totalKhasraBadge')) {
+        document.getElementById('totalKhasraBadge').textContent = `${totalCount} खसरे`;
+    }
+
     // Render Khasra Table (5 columns)
     const tbody = document.getElementById('khasraTableBody');
     tbody.innerHTML = '';
@@ -453,11 +459,11 @@ function renderResults(result, searchVal) {
         result.khasraRecords.forEach((rec, idx) => {
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <td>${idx + 1}</td>
+                <td><strong>${escapeHtml(rec.khataNo || kNum)}</strong></td>
                 <td><span class="badge bg-secondary fs-6">${escapeHtml(rec.khasraNo || '')}</span></td>
                 <td><strong>${escapeHtml(rec.rakbaHectare || '')}</strong></td>
                 <td>${escapeHtml(rec.irrigation || '-')}</td>
-                <td>${escapeHtml(rec.soilAndTax || '')}</td>
+                <td>${escapeHtml(rec.soilAndTax || '-')}</td>
             `;
             tbody.appendChild(tr);
         });

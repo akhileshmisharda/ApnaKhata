@@ -1105,41 +1105,47 @@ export class ApnaKhataExtractor {
       const villMatch = bodyText.match(/(?:गाँव|पटवार)\s*[:-]+\s*([^\t\n\r]+)/);
       if (villMatch) result.village = cleanField(villMatch[1]);
 
-      // 2. Extract Owners / Kashtkaar
-      const lines = bodyText.split('\n').map((l) => l.trim()).filter(Boolean);
-      for (const line of lines) {
+      // 2. Extract Owners / Kashtkaar (capture all name lines and father/caste lines)
+      const seenOwnerLines = new Set();
+      const allTds = Array.from(document.querySelectorAll('td, th, tr, div'));
+      for (const el of allTds) {
+        // Skip elements that contain other big containers
+        if (el.querySelectorAll('table').length > 0) continue;
+        const text = (el.innerText || '').trim();
         if (
-          line.includes('काश्तकार') ||
-          line.includes('खातेदार') ||
-          line.includes('पि.रूपचंद') ||
-          line.includes('पिता') ||
-          line.includes('पुत्र') ||
-          line.includes('ब्राह्मण') ||
-          line.includes('सा.देह')
+          (text.includes('खातेदार') || text.includes('काश्तकार') || text.includes('सा.देह') || text.includes('पुत्र') || text.includes('पि.')) &&
+          !text.includes('खसरो की सूचना') &&
+          !text.includes('जमाबंदी की सूचना') &&
+          !text.includes('विकल्प') &&
+          text.length > 3
         ) {
-          if (
-            !line.includes('खसरो की सूचना') &&
-            !line.includes('जमाबंदी की सूचना') &&
-            !line.includes('विकल्प') &&
-            !line.includes('Version') &&
-            line.length > 5
-          ) {
-            result.owners.push(line);
-          }
+          const splitLines = text.split('\n').map((l) => l.trim()).filter((l) => l.length > 2 && !l.includes('खसरा') && !l.includes('रकबा') && !l.includes('खाता संख्या'));
+          splitLines.forEach((l) => {
+            if (!seenOwnerLines.has(l)) {
+              seenOwnerLines.add(l);
+              result.owners.push(l);
+            }
+          });
         }
       }
 
-      // Also check table rows for owner cell (bottom row with colspan)
-      const allTds = Array.from(document.querySelectorAll('td'));
-      for (const td of allTds) {
-        const text = (td.innerText || '').trim();
-        if (
-          (text.includes('खातेदार') || text.includes('पुत्र') || text.includes('पि.') || text.includes('हिस्सा')) &&
-          text.length < 200 &&
-          !text.includes('खसरा') &&
-          !result.owners.includes(text)
-        ) {
-          result.owners.push(text);
+      // Method B: Text parsing fallback
+      if (result.owners.length === 0) {
+        const lines = bodyText.split('\n').map((l) => l.trim()).filter(Boolean);
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          if (line.includes('काश्तकार') || line.includes('खातेदार') || line.includes('सा.देह')) {
+            if (i > 0 && lines[i - 1].length > 3 && !lines[i - 1].includes('रकबा') && !lines[i - 1].includes('खसरा')) {
+              if (!seenOwnerLines.has(lines[i - 1])) {
+                seenOwnerLines.add(lines[i - 1]);
+                result.owners.push(lines[i - 1]);
+              }
+            }
+            if (!seenOwnerLines.has(line)) {
+              seenOwnerLines.add(line);
+              result.owners.push(line);
+            }
+          }
         }
       }
 
@@ -1152,7 +1158,6 @@ export class ApnaKhataExtractor {
 
       // 3. Extract Khasra Rows matching exact table columns (खाता संख्या | खसरा | रकबा | सिंचाई के साधन | खेत का नाम | शामिल नंबर)
       const tables = Array.from(document.querySelectorAll('table'));
-      const seenKhasraKeys = new Set();
 
       tables.forEach((table, tableIndex) => {
         // Skip outer container tables that contain nested tables
@@ -1180,9 +1185,12 @@ export class ApnaKhataExtractor {
               rowVals.length >= 3 &&
               hasNumbers &&
               !joinedRow.includes('खाता संख्या') &&
-              !joinedRow.includes('खसरा') &&
-              !joinedRow.includes('रकबा') &&
-              !joinedRow.includes('कुल')
+              !joinedRow.includes('खसरो की सूचना') &&
+              !joinedRow.includes('जमाबंदी की सूचना') &&
+              !joinedRow.includes('कुल') &&
+              !joinedRow.includes('खातेदार') &&
+              !joinedRow.includes('काश्तकार') &&
+              !joinedRow.includes('सा.देह')
             ) {
               let khata = rowVals[0] || targetKhata;
               let khasra = rowVals[1] || '';
@@ -1191,9 +1199,7 @@ export class ApnaKhataExtractor {
               let farmName = rowVals[4] || '';
               let soilAndTax = rowVals.slice(3).filter(Boolean).join(' ');
 
-              const rowKey = `${khata}_${khasra}_${rakba}_${irrigation}`;
-              if (khasra && rakba && !seenKhasraKeys.has(rowKey)) {
-                seenKhasraKeys.add(rowKey);
+              if (khasra && rakba) {
                 result.khasraRecords.push({
                   khataNo: khata,
                   khasraNo: khasra,
