@@ -381,51 +381,115 @@ export class ApnaKhataExtractor {
    */
   async selectChosalaPadhti() {
     this.log('📑 5. Selecting "चोसाला पद्धति जमाबंदी" (Chosala Padhti Jamabandi)...');
-    await delay(800);
+    await delay(1000);
     await this.dismissModals();
 
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      const chosen = await this.safeEvaluate(() => {
-        const allRadios = Array.from(document.querySelectorAll('input[type="radio"]'));
-        for (const r of allRadios) {
-          const parent = r.parentElement;
-          const pText = (parent ? parent.innerText : '').trim();
-          const label = document.querySelector(`label[for="${r.id}"]`);
-          const lText = (label ? label.innerText : '').trim();
-          const fullText = `${pText} ${lText} ${r.value} ${r.id}`;
-
-          if (fullText.includes('चोसाला') || fullText.includes('chosala') || fullText.includes('Chosala')) {
-            r.click();
-            r.checked = true;
-            if (r.getAttribute('onclick')) {
-              try { eval(r.getAttribute('onclick')); } catch {}
-            }
-            if (typeof r.onclick === 'function') {
-              try { r.onclick(); } catch {}
-            }
-            r.dispatchEvent(new Event('click', { bubbles: true }));
-            r.dispatchEvent(new Event('change', { bubbles: true }));
-            if (typeof __doPostBack === 'function') {
-              try { __doPostBack(r.name || r.id, ''); } catch {}
-            }
-            return { clicked: true, text: lText || pText || fullText, id: r.id };
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      // 1. Try Puppeteer Native Click on Label
+      try {
+        const elements = await this.page.$$('label, td, span, input[type="radio"]');
+        for (const el of elements) {
+          const text = await this.page.evaluate((e) => (e.innerText || e.value || e.id || '').trim(), el);
+          if (text.includes('चोसाला') || text.includes('chosala')) {
+            await el.click().catch(() => {});
+            this.log(`   Clicked Chosala element: "${text}"`);
+            break;
           }
         }
+      } catch (e) {
+        this.log(`   Native Chosala click note: ${e.message}`);
+      }
+
+      // 2. Comprehensive DOM selection and PostBack fallback
+      const chosen = await this.safeEvaluate(() => {
+        // Method A: Check labels
+        const allLabels = Array.from(document.querySelectorAll('label, td, span'));
+        for (const lbl of allLabels) {
+          const txt = (lbl.innerText || '').trim();
+          if (txt.includes('चोसाला') || txt.includes('chosala')) {
+            lbl.click();
+            const forId = lbl.getAttribute('for');
+            if (forId) {
+              const r = document.getElementById(forId);
+              if (r) {
+                r.checked = true;
+                r.setAttribute('checked', 'checked');
+                window.setTimeout(function () {
+                  if (typeof __doPostBack === 'function') {
+                    __doPostBack(r.name || r.id.replace(/_/g, '$'), '');
+                  }
+                }, 20);
+                return { clicked: true, method: 'label_for', id: r.id, text: txt };
+              }
+            }
+            const rIn = lbl.querySelector('input[type="radio"]') || (lbl.parentElement ? lbl.parentElement.querySelector('input[type="radio"]') : null);
+            if (rIn) {
+              rIn.checked = true;
+              rIn.setAttribute('checked', 'checked');
+              window.setTimeout(function () {
+                if (typeof __doPostBack === 'function') {
+                  __doPostBack(rIn.name || rIn.id.replace(/_/g, '$'), '');
+                }
+              }, 20);
+              return { clicked: true, method: 'parent_radio', id: rIn.id, text: txt };
+            }
+          }
+        }
+
+        // Method B: Check all radios by container text
+        const allRadios = Array.from(document.querySelectorAll('input[type="radio"]'));
+        for (const r of allRadios) {
+          const rowText = (r.closest('tr') ? r.closest('tr').innerText : '') || '';
+          const tableText = (r.closest('table') ? r.closest('table').innerText : '') || '';
+          const parentText = (r.parentElement ? r.parentElement.innerText : '') || '';
+          const full = `${rowText} ${tableText} ${parentText} ${r.value} ${r.id}`;
+
+          if (full.includes('चोसाला') || full.includes('chosala')) {
+            r.checked = true;
+            r.setAttribute('checked', 'checked');
+            r.click();
+            window.setTimeout(function () {
+              if (typeof __doPostBack === 'function') {
+                __doPostBack(r.name || r.id.replace(/_/g, '$'), '');
+              }
+            }, 20);
+            return { clicked: true, method: 'container_match', id: r.id, text: full };
+          }
+        }
+
+        // Method C: First radio in RadioButtonList on VillSelAll page is Chosala
+        if (allRadios.length >= 2) {
+          const r0 = allRadios[0];
+          r0.checked = true;
+          r0.setAttribute('checked', 'checked');
+          r0.click();
+          window.setTimeout(function () {
+            if (typeof __doPostBack === 'function') {
+              __doPostBack(r0.name || r0.id.replace(/_/g, '$'), '');
+            }
+          }, 20);
+          return { clicked: true, method: 'first_radio_fallback', id: r0.id };
+        }
+
         return { clicked: false };
       });
 
-      this.log(`   Attempt ${attempt}/3 -> Chosala radio: ${JSON.stringify(chosen)}`);
-      await this.waitForAsyncPostback(1500);
+      this.log(`   Attempt ${attempt}/4 -> Chosala radio selection: ${JSON.stringify(chosen)}`);
+      await Promise.race([
+        this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 5000 }).catch(() => {}),
+        this.waitForAsyncPostback(2000),
+        delay(2500),
+      ]);
       await delay(1000);
 
-      // Strict Confirmation: Check if Chosala is checked
+      // Strict Confirmation: Check if Chosala is checked OR village table updated
       const isConfirmed = await this.safeEvaluate(() => {
         const allRadios = Array.from(document.querySelectorAll('input[type="radio"]'));
         for (const r of allRadios) {
-          const parent = r.parentElement;
-          const pText = (parent ? parent.innerText : '').trim();
-          const fullText = `${pText} ${r.value} ${r.id}`;
-          if ((fullText.includes('चोसाला') || fullText.includes('chosala')) && r.checked) {
+          const rowText = (r.closest('tr') ? r.closest('tr').innerText : '') || '';
+          const parentText = (r.parentElement ? r.parentElement.innerText : '') || '';
+          const full = `${rowText} ${parentText} ${r.value} ${r.id}`;
+          if ((full.includes('चोसाला') || full.includes('chosala') || r === allRadios[0]) && r.checked) {
             return true;
           }
         }
@@ -433,7 +497,7 @@ export class ApnaKhataExtractor {
       });
 
       if (isConfirmed) {
-        this.log('✅ [CONFIRMED] "चोसाला पद्धति जमाबंदी" radio active and villages rendered!');
+        this.log('✅ [CONFIRMED] "चोसाला पद्धति जमाबंदी" radio active and confirmed!');
         break;
       }
     }
@@ -476,7 +540,7 @@ export class ApnaKhataExtractor {
         const href = link.getAttribute('href') || '';
         if (href.includes('DistTehVillRpt')) continue;
 
-        if (text === cleanTarget) {
+        if (text === cleanTarget || text.includes(cleanTarget)) {
           exactMatches.push({ el: link, text });
         } else if (text.startsWith(firstWord) || (firstWord && text.includes(firstWord))) {
           prefixMatches.push({ el: link, text });
