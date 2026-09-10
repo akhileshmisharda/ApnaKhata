@@ -55,17 +55,38 @@ export class ApnaKhataExtractor {
 
   async initBrowser() {
     console.log('\n🚀 Launching Chrome browser...');
-    this.browser = await puppeteer.launch({
-      headless: this.config.options.headless ? 'new' : false,
-      slowMo: this.config.options.slowMo,
-      defaultViewport: null,
-      args: [
-        '--start-maximized',
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-blink-features=AutomationControlled',
-      ],
-    });
+    const isHeadless = Boolean(this.config.options.headless);
+    const chromeArgs = [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--disable-software-rasterizer',
+      '--no-first-run',
+      '--no-zygote',
+      '--disable-extensions',
+      '--disable-blink-features=AutomationControlled',
+    ];
+
+    if (isHeadless) {
+      chromeArgs.push('--single-process');
+      chromeArgs.push('--window-size=1920,1080');
+    } else {
+      chromeArgs.push('--start-maximized');
+    }
+
+    const launchOptions = {
+      headless: isHeadless ? 'new' : false,
+      slowMo: isHeadless ? 0 : this.config.options.slowMo,
+      defaultViewport: isHeadless ? { width: 1920, height: 1080 } : null,
+      args: chromeArgs,
+    };
+
+    if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+      launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+    }
+
+    this.browser = await puppeteer.launch(launchOptions);
 
     const pages = await this.browser.pages();
     this.page = pages.length > 0 ? pages[0] : await this.browser.newPage();

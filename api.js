@@ -47,10 +47,10 @@ app.post('/api/extract', async (req, res) => {
       searchValue: String(req.body.searchValue || '560').trim(),
       options: {
         headless: req.body.headless ?? true, // Default to headless on cloud server
-        saveJson: true,
-        saveCsv: true,
-        saveScreenshot: true,
-        savePdf: true,
+        saveJson: false,
+        saveCsv: false,
+        saveScreenshot: req.body.saveScreenshot ?? false,
+        savePdf: req.body.savePdf ?? false,
         outputDir: './output',
       },
     };

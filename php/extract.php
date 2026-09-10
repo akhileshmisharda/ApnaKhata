@@ -41,15 +41,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     curl_close($ch);
 
     if ($curlError) {
-        $errorMessage = "cURL Error: " . $curlError;
+        $errorMessage = "cURL Connection Error: " . $curlError;
+    } elseif ($httpCode === 502 || $httpCode === 504) {
+        $errorMessage = "The Render cloud server is waking up from idle state (Cold Start) or hit a temporary gateway timeout. Please wait 30 seconds and click 'Extract' again.";
     } elseif ($httpCode !== 200) {
-        $errorMessage = "Extraction Server Error (HTTP " . $httpCode . "): " . $response;
+        $json = json_decode($response, true);
+        if ($json && isset($json['message'])) {
+            $errorMessage = "Extraction Error (HTTP " . $httpCode . "): " . $json['message'];
+        } else {
+            $errorMessage = "Extraction Server Error (HTTP " . $httpCode . "): " . strip_tags(substr($response, 0, 300));
+        }
     } else {
         $json = json_decode($response, true);
         if ($json && isset($json['status']) && $json['status'] === 'success') {
             $resultData = $json['data'];
         } else {
-            $errorMessage = $json['message'] ?? 'Unknown error occurred.';
+            $errorMessage = $json['message'] ?? 'Unknown error occurred during extraction.';
         }
     }
 }
