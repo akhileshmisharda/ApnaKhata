@@ -904,6 +904,12 @@ export class ApnaKhataExtractor {
       await delay(1000);
       await this.waitForAsyncPostback(1000);
     }
+
+    // Wait for AJAX postback & loading spinner to finish after Khata selection
+    this.log('⏳ Waiting for Khata details and Nakal action buttons to render...');
+    await this.waitForAsyncPostback(2500);
+    await delay(1500);
+    await this.dismissModals();
   }
 
   /**
@@ -919,63 +925,78 @@ export class ApnaKhataExtractor {
 
     let clickedInfo = null;
 
-    try {
-      const buttonElements = await this.page.$$('input[type="submit"], input[type="button"], button, a.btn, a');
-      for (const btn of buttonElements) {
-        const text = await this.page.evaluate((el) => (el.value || el.innerText || el.id || '').trim(), btn);
-        if (
-          text.includes('नकल (सूचनार्थ)') ||
-          text.includes('सूचनार्थ') ||
-          (text.includes('नकल') && !text.includes('ई-हस्ताक्षरित') && !text.includes('अधिकृत')) ||
-          text.toLowerCase().includes('suchnarth') ||
-          text.toLowerCase().includes('btnnakal')
-        ) {
-          this.log(`   Found Nakal button: "${text}", sending native click...`);
-          await btn.click();
-          clickedInfo = { clicked: true, text };
-          break;
-        }
-      }
-    } catch (e) {
-      this.log(`   Native click note: ${e.message}`);
-    }
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      this.log(`   Attempt ${attempt}/5: Searching for "नकल (सूचनार्थ)" button...`);
+      await this.dismissModals();
 
-    if (!clickedInfo) {
-      clickedInfo = await this.safeEvaluate(() => {
-        const allButtons = Array.from(
-          document.querySelectorAll('input[type="submit"], input[type="button"], button, a.btn, a')
-        );
-        for (const btn of allButtons) {
-          const val = (btn.getAttribute('value') || btn.innerText || '').trim();
-          const id = (btn.id || '').toLowerCase();
+      // 1. Native Puppeteer click
+      try {
+        const buttonElements = await this.page.$$('input[type="submit"], input[type="button"], button, a.btn, a');
+        for (const btn of buttonElements) {
+          const text = await this.page.evaluate((el) => (el.value || el.innerText || el.id || '').trim(), btn);
           if (
-            val.includes('नकल (सूचनार्थ)') ||
-            val.includes('सूचनार्थ') ||
-            (val.includes('नकल') && !val.includes('ई-हस्ताक्षरित') && !val.includes('अधिकृत')) ||
-            id.includes('suchnarth') ||
-            id.includes('btnnakal')
+            text.includes('नकल (सूचनार्थ)') ||
+            text.includes('सूचनार्थ') ||
+            (text.includes('नकल') && !text.includes('ई-हस्ताक्षरित') && !text.includes('अधिकृत')) ||
+            text.toLowerCase().includes('suchnarth') ||
+            text.toLowerCase().includes('btnnakal') ||
+            text.toLowerCase().includes('btn_suchnarth')
           ) {
-            btn.click();
-            window.setTimeout(function () {
-              if (typeof __doPostBack === 'function') {
-                try { __doPostBack(btn.name || btn.id.replace(/_/g, '$'), ''); } catch {}
-              }
-            }, 20);
-            return { clicked: true, text: val, id: btn.id };
+            this.log(`   Found Nakal button: "${text}", clicking...`);
+            await btn.click().catch(() => {});
+            clickedInfo = { clicked: true, text };
+            break;
           }
         }
-        return { clicked: false };
-      });
-    }
+      } catch (e) {
+        this.log(`   Native click note: ${e.message}`);
+      }
 
-    this.log(`   Nakal button click status: ${JSON.stringify(clickedInfo)}`);
+      // 2. DOM evaluate fallback
+      if (!clickedInfo) {
+        clickedInfo = await this.safeEvaluate(() => {
+          const allButtons = Array.from(
+            document.querySelectorAll('input[type="submit"], input[type="button"], button, a.btn, a')
+          );
+          for (const btn of allButtons) {
+            const val = (btn.getAttribute('value') || btn.innerText || '').trim();
+            const id = (btn.id || '').toLowerCase();
+            if (
+              val.includes('नकल (सूचनार्थ)') ||
+              val.includes('सूचनार्थ') ||
+              (val.includes('नकल') && !val.includes('ई-हस्ताक्षरित') && !val.includes('अधिकृत')) ||
+              id.includes('suchnarth') ||
+              id.includes('btnnakal') ||
+              id.includes('btn_suchnarth')
+            ) {
+              btn.click();
+              window.setTimeout(function () {
+                if (typeof __doPostBack === 'function') {
+                  try { __doPostBack(btn.name || btn.id.replace(/_/g, '$'), ''); } catch {}
+                }
+              }, 20);
+              return { clicked: true, text: val, id: btn.id };
+            }
+          }
+          return null;
+        });
+      }
+
+      if (clickedInfo && clickedInfo.clicked) {
+        this.log(`✅ [CONFIRMED] Nakal button clicked: "${clickedInfo.text}"`);
+        break;
+      }
+
+      await delay(1500);
+      await this.waitForAsyncPostback(1500);
+    }
 
     if (!clickedInfo || !clickedInfo.clicked) {
       throw new Error('"नकल (सूचनार्थ)" बटन नहीं मिला या क्लिक नहीं हो सका।');
     }
 
     // Check if new tab was opened
-    await delay(1500);
+    await delay(2000);
     const pages = await this.browser.pages();
     if (pages.length > 1) {
       const latestPage = pages[pages.length - 1];
