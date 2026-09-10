@@ -65,20 +65,14 @@ export class ApnaKhataExtractor {
       '--no-first-run',
       '--no-zygote',
       '--disable-extensions',
+      '--window-size=1280,800',
       '--disable-blink-features=AutomationControlled',
     ];
-
-    if (isHeadless) {
-      chromeArgs.push('--single-process');
-      chromeArgs.push('--window-size=1920,1080');
-    } else {
-      chromeArgs.push('--start-maximized');
-    }
 
     const launchOptions = {
       headless: isHeadless ? 'new' : false,
       slowMo: isHeadless ? 0 : this.config.options.slowMo,
-      defaultViewport: isHeadless ? { width: 1920, height: 1080 } : null,
+      defaultViewport: isHeadless ? { width: 1280, height: 800 } : null,
       args: chromeArgs,
     };
 
@@ -500,11 +494,41 @@ export class ApnaKhataExtractor {
     }, searchValue);
 
     console.log(`✅ Khata selection result: ${JSON.stringify(chosen)}`);
+    await this.waitForAsyncPostback(1500);
+    await delay(1000);
+
+    // 👉 CRUCIAL STEP: Click "नकल (सूचनार्थ)" button to trigger the table generation
+    console.log('👉 8. Clicking "नकल (सूचनार्थ)" button to render Jamabandi table...');
+    const nakalBtnClicked = await this.page.evaluate(() => {
+      const allButtons = Array.from(
+        document.querySelectorAll('input[type="submit"], input[type="button"], button, a.btn, a')
+      );
+      for (const btn of allButtons) {
+        const val = (btn.getAttribute('value') || btn.innerText || '').trim();
+        const id = (btn.id || '').toLowerCase();
+        if (
+          val.includes('नकल (सूचनार्थ)') ||
+          val.includes('सूचनार्थ') ||
+          (val.includes('नकल') && !val.includes('ई-हस्ताक्षरित') && !val.includes('अधिकृत')) ||
+          id.includes('suchnarth') ||
+          id.includes('btnnakal')
+        ) {
+          btn.click();
+          if (typeof btn.onclick === 'function') {
+            try { btn.onclick(); } catch {}
+          }
+          return { clicked: true, text: val, id: btn.id };
+        }
+      }
+      return { clicked: false };
+    });
+
+    console.log(`   Nakal button action: ${JSON.stringify(nakalBtnClicked)}`);
 
     // Wait for Jamabandi table to render on page
     console.log('⏳ Waiting for Jamabandi Record Table to render...');
-    await this.waitForAsyncPostback(2500);
-    await delay(1200);
+    await this.waitForAsyncPostback(3000);
+    await delay(2000);
     await this.takeStepScreenshot('5_table_rendered');
   }
 
@@ -512,8 +536,8 @@ export class ApnaKhataExtractor {
    * Step 6: Extract structured Jamabandi Record directly from this table
    */
   async extractJamabandiData() {
-    const searchValue = String(this.config.searchValue || '560').replace(/[^\d]/g, '').trim() || '560';
-    console.log(`\n📊 8. Extracting complete Jamabandi record from page for Khata "${searchValue}"...`);
+    const searchValue = String(this.config.searchValue || '525').replace(/[^\d]/g, '').trim() || '525';
+    console.log(`\n📊 9. Extracting complete Jamabandi record from page for Khata "${searchValue}"...`);
     await delay(800);
 
     const extractedData = await this.page.evaluate((targetKhata) => {
@@ -528,7 +552,7 @@ export class ApnaKhataExtractor {
         district: 'भीलवाड़ा',
         tehsil: 'बनेड़ा',
         village: 'रायला - रायला - रायला',
-        khataNumber: cleanField(targetKhata) || '560',
+        khataNumber: cleanField(targetKhata) || '525',
         owners: [],
         khasraRecords: [],
         allTables: [],
@@ -544,30 +568,45 @@ export class ApnaKhataExtractor {
       const tehMatch = bodyText.match(/तहसील\s*[:-]+\s*([^\t\n\r]+)/);
       if (tehMatch) result.tehsil = cleanField(tehMatch[1]);
 
-      const villMatch = bodyText.match(/गाँव\s*[:-]+\s*([^\t\n\r]+)/);
+      const villMatch = bodyText.match(/(?:गाँव|पटवार)\s*[:-]+\s*([^\t\n\r]+)/);
       if (villMatch) result.village = cleanField(villMatch[1]);
 
       // 2. Extract Owners / Kashtkaar
       const lines = bodyText.split('\n').map((l) => l.trim()).filter(Boolean);
       let inKashtkaarSection = false;
       for (const line of lines) {
-        if (line.includes('काश्तकार की सूचना') || line.includes('काश्तकार') || line.includes('खातेदार')) {
-          inKashtkaarSection = true;
-          continue;
-        }
-        if (inKashtkaarSection) {
-          if (line.includes('खसरा') || line.includes('रकबा') || line.includes('भूमि वर्गीकरण')) {
-            inKashtkaarSection = false;
-            break;
-          }
-          if (line.includes('नाम') && !line.includes('पुत्र')) continue;
-          if (line.includes('पुत्र') || line.includes('बेवा') || line.includes('पत्नी') || line.includes('हिस्सा') || line.includes('कौम')) {
+        if (
+          line.includes('काश्तकार') ||
+          line.includes('खातेदार') ||
+          line.includes('पि.रूपचंद') ||
+          line.includes('पिता') ||
+          line.includes('पुत्र') ||
+          line.includes('ब्राह्मण') ||
+          line.includes('सा.देह')
+        ) {
+          if (
+            !line.includes('खसरो की सूचना') &&
+            !line.includes('जमाबंदी की सूचना') &&
+            !line.includes('विकल्प') &&
+            !line.includes('Version') &&
+            line.length > 5
+          ) {
             result.owners.push(line);
-          } else if (result.owners.length > 0 && line.length < 60 && !line.includes('राजस्थान') && !line.includes('Version')) {
-            if (!line.includes(':') && !line.includes('खसरा')) {
-              result.owners.push(line);
-            }
           }
+        }
+      }
+
+      // Also check table rows for owner cell (bottom row with colspan)
+      const allTds = Array.from(document.querySelectorAll('td'));
+      for (const td of allTds) {
+        const text = (td.innerText || '').trim();
+        if (
+          (text.includes('खातेदार') || text.includes('पुत्र') || text.includes('पि.') || text.includes('हिस्सा')) &&
+          text.length < 200 &&
+          !text.includes('खसरा') &&
+          !result.owners.includes(text)
+        ) {
+          result.owners.push(text);
         }
       }
 
@@ -578,7 +617,7 @@ export class ApnaKhataExtractor {
         khataNumber: result.khataNumber,
       };
 
-      // 3. Extract tables & identify Khasra rows without duplication
+      // 3. Extract Khasra Rows matching exact table columns (खाता संख्या | खसरा | रकबा | सिंचाई के साधन | खेत का नाम | शामिल नंबर)
       const tables = Array.from(document.querySelectorAll('table'));
       const seenKhasraKeys = new Set();
 
@@ -597,59 +636,38 @@ export class ApnaKhataExtractor {
           if (ths.length > 0 && headers.length === 0) {
             headers = ths.map((th) => th.innerText.trim());
           } else if (tds.length > 0) {
-            const rowVals = tds.map((td) => td.innerText.trim()).filter(Boolean);
-            if (rowVals.length === 0) return;
+            const rowVals = tds.map((td) => td.innerText.trim());
             tableData.push(rowVals);
 
             const joinedRow = rowVals.join(' ');
             const hasNumbers = rowVals.some((v) => /^\d+(\.\d+)?$/.test(v));
 
-            // Identify Khasra rows (ignore totals/headers)
+            // Identify Khasra rows: Columns [खाता संख्या, खसरा, रकबा, सिंचाई के साधन, खेत का नाम, शामिल नंबर]
             if (
-              rowVals.length >= 2 &&
+              rowVals.length >= 3 &&
               hasNumbers &&
-              !joinedRow.includes('कुल') &&
-              !joinedRow.includes('योग') &&
-              !joinedRow.includes('खसरा संख्या') &&
-              !joinedRow.includes('क्षेत्रफल')
+              !joinedRow.includes('खाता संख्या') &&
+              !joinedRow.includes('खसरा') &&
+              !joinedRow.includes('रकबा') &&
+              !joinedRow.includes('कुल')
             ) {
-              let khasra = '';
-              let rakba = '';
-              let irrigation = '-';
-              let soilAndTax = '';
+              let khata = rowVals[0] || targetKhata;
+              let khasra = rowVals[1] || '';
+              let rakba = rowVals[2] || '';
+              let irrigation = rowVals[3] || '-';
+              let farmName = rowVals[4] || '';
+              let soilAndTax = rowVals.slice(3).filter(Boolean).join(' ');
 
-              if (rowVals.length === 2) {
-                khasra = rowVals[0];
-                rakba = rowVals[1];
-              } else if (rowVals.length === 3) {
-                khasra = rowVals[0];
-                rakba = rowVals[1];
-                soilAndTax = rowVals[2];
-              } else if (rowVals.length >= 4) {
-                // If first column is serial number (e.g. 1, 2, 3) and 2nd is khasra
-                if (rowVals[0] === targetKhata) {
-                  khasra = rowVals[1];
-                  rakba = rowVals[2];
-                  irrigation = rowVals[3] || '-';
-                  soilAndTax = rowVals.slice(4).join(' ');
-                } else {
-                  khasra = rowVals[0];
-                  rakba = rowVals[1];
-                  irrigation = rowVals[2] || '-';
-                  soilAndTax = rowVals.slice(3).join(' ');
-                }
-              }
-
-              const rowKey = `${khasra}_${rakba}_${irrigation}_${soilAndTax}`;
+              const rowKey = `${khata}_${khasra}_${rakba}_${irrigation}`;
               if (khasra && rakba && !seenKhasraKeys.has(rowKey)) {
                 seenKhasraKeys.add(rowKey);
                 result.khasraRecords.push({
-                  khataNo: targetKhata || '560',
+                  khataNo: khata,
                   khasraNo: khasra,
                   rakbaHectare: rakba,
-                  irrigation: irrigation,
-                  farmName: '',
-                  soilAndTax: soilAndTax,
+                  irrigation: irrigation || '-',
+                  farmName: farmName || '',
+                  soilAndTax: soilAndTax || '-',
                   fullRow: rowVals,
                 });
               }
@@ -671,8 +689,8 @@ export class ApnaKhataExtractor {
 
     // Attach Step Screenshots dictionary & Main Screenshot
     extractedData.stepScreenshots = this.stepScreenshots || {};
-    if (this.stepScreenshots && this.stepScreenshots.step5_table_rendered) {
-      extractedData.screenshotBase64 = this.stepScreenshots.step5_table_rendered;
+    if (this.stepScreenshots && (this.stepScreenshots['5_table_rendered'] || this.stepScreenshots.step5_table_rendered)) {
+      extractedData.screenshotBase64 = this.stepScreenshots['5_table_rendered'] || this.stepScreenshots.step5_table_rendered;
     } else {
       try {
         const screenshotBuffer = await this.page.screenshot({
