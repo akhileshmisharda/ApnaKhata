@@ -532,12 +532,36 @@ export class ApnaKhataExtractor {
     await this.takeStepScreenshot('5_options_page_opened');
 
     // Helper to click and confirm radio status before moving forward
-    const clickAndConfirmRadio = async (keywords, verifyNextKeyword, stepName, maxRetries = 3) => {
+    const clickAndConfirmRadio = async (keywords, verifyNextKeyword, stepName, maxRetries = 4) => {
       console.log(`\n👉 [Stage] Clicking and Confirming: ${stepName}...`);
       await this.dismissModals();
 
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        // 1. Click target radio
+        // 1. Try native Puppeteer click on matching radio element
+        try {
+          const radioHandles = await this.page.$$('input[type="radio"]');
+          for (const handle of radioHandles) {
+            const isMatch = await this.page.evaluate((el, kws) => {
+              const parent = el.parentElement;
+              const pText = (parent ? parent.innerText : '').trim();
+              const nText = (el.nextSibling ? el.nextSibling.textContent : '').trim();
+              const label = document.querySelector(`label[for="${el.id}"]`);
+              const lText = (label ? label.innerText : '').trim();
+              const text = `${pText} ${nText} ${lText} ${el.value} ${el.id}`;
+              return kws.some((kw) => text.includes(kw));
+            }, handle, keywords);
+
+            if (isMatch) {
+              console.log(`   [Native Click] Matched radio for ${stepName}, executing click...`);
+              await handle.click().catch(() => {});
+              break;
+            }
+          }
+        } catch (e) {
+          console.warn('   Native radio click note:', e.message);
+        }
+
+        // 2. Also trigger DOM click and ASP.NET __doPostBack in page context
         const clickResult = await this.safeEvaluate((targetKws) => {
           const allRadios = Array.from(document.querySelectorAll('input[type="radio"]'));
           for (const r of allRadios) {
@@ -559,7 +583,10 @@ export class ApnaKhataExtractor {
               }
               r.dispatchEvent(new Event('click', { bubbles: true }));
               r.dispatchEvent(new Event('change', { bubbles: true }));
-              return { clicked: true, text: lText || pText || fullText, id: r.id };
+              if (typeof __doPostBack === 'function') {
+                try { __doPostBack(r.name || r.id, ''); } catch {}
+              }
+              return { clicked: true, text: lText || pText || fullText, id: r.id, name: r.name };
             }
           }
 
@@ -573,6 +600,9 @@ export class ApnaKhataExtractor {
                 insideRadio.checked = true;
                 insideRadio.dispatchEvent(new Event('click', { bubbles: true }));
                 insideRadio.dispatchEvent(new Event('change', { bubbles: true }));
+                if (typeof __doPostBack === 'function') {
+                  try { __doPostBack(insideRadio.name || insideRadio.id, ''); } catch {}
+                }
                 return { clicked: true, text, id: insideRadio.id };
               } else {
                 l.click();
@@ -583,12 +613,17 @@ export class ApnaKhataExtractor {
           return { clicked: false };
         }, keywords);
 
-        console.log(`   Attempt ${attempt}/${maxRetries} -> Click: ${JSON.stringify(clickResult)}`);
-        await this.waitForAsyncPostback(1200);
-        await delay(800);
+        console.log(`   Attempt ${attempt}/${maxRetries} -> Click Result: ${JSON.stringify(clickResult)}`);
+        
+        await Promise.race([
+          this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 4000 }).catch(() => {}),
+          this.waitForAsyncPostback(1800),
+          delay(1800),
+        ]);
+        await delay(1000);
         await this.dismissModals();
 
-        // 2. Strict Confirmation: Check if radio is checked AND/OR next elements appeared
+        // 3. Strict Confirmation: Check if radio is checked AND/OR next elements appeared
         const confirmation = await this.safeEvaluate((targetKws, vKw) => {
           const allRadios = Array.from(document.querySelectorAll('input[type="radio"]'));
           let isChecked = false;
@@ -605,32 +640,45 @@ export class ApnaKhataExtractor {
           }
 
           const bodyText = (document.body ? document.body.innerText : '') || '';
-          const hasNextElement = vKw ? bodyText.includes(vKw) : true;
+          const hasNextElement = vKw ? bodyText.includes(vKw) : false;
           return { isChecked, hasNextElement, confirmed: isChecked || hasNextElement };
         }, keywords, verifyNextKeyword);
+
+        console.log(`   Attempt ${attempt}/${maxRetries} -> Confirmation: ${JSON.stringify(confirmation)}`);
 
         if (confirmation && confirmation.confirmed) {
           console.log(`   ✅ [CONFIRMED] ${stepName} successfully verified and active!`);
           return true;
         } else {
           console.log(`   ⏳ [Pending Confirmation] ${stepName} not confirmed yet, retrying...`);
-          await delay(800);
+          await delay(1200);
         }
       }
+
+      console.warn(`⚠️ [WARNING] ${stepName} could not be confirmed after ${maxRetries} attempts.`);
       return false;
     };
 
     // 1. Confirm & Select "जमाबंदी की प्रतिलिपि"
-    await clickAndConfirmRadio(['जमाबंदी की प्रतिलिपि', 'जमाबंदी'], 'वर्तमान नकल', 'Radio 1: "जमाबंदी की प्रतिलिपि"');
+    const step1Ok = await clickAndConfirmRadio(['जमाबंदी की प्रतिलिपि', 'जमाबंदी'], 'वर्तमान नकल', 'Radio 1: "जमाबंदी की प्रतिलिपि"');
     await this.takeStepScreenshot('6_jamabandi_selected');
+    if (!step1Ok) {
+      throw new Error('चरण "जमाबंदी की प्रतिलिपि" का चयन पुष्ट (Confirm) नहीं हो सका। कृपया पुनः प्रयास करें।');
+    }
 
     // 2. Confirm & Select "वर्तमान नकल"
-    await clickAndConfirmRadio(['वर्तमान नकल', 'वर्तमान'], 'खाता से', 'Radio 2: "वर्तमान नकल"');
+    const step2Ok = await clickAndConfirmRadio(['वर्तमान नकल', 'वर्तमान'], 'खाता से', 'Radio 2: "वर्तमान नकल"');
     await this.takeStepScreenshot('7_vartman_selected');
+    if (!step2Ok) {
+      throw new Error('चरण "वर्तमान नकल" का चयन पुष्ट (Confirm) नहीं हो सका।');
+    }
 
     // 3. Confirm & Select "खाता से"
-    await clickAndConfirmRadio(['खाता से', 'खाता'], 'खाता संख्या', 'Radio 3: "खाता से"');
+    const step3Ok = await clickAndConfirmRadio(['खाता से', 'खाता'], 'खाता संख्या', 'Radio 3: "खाता से"');
     await this.takeStepScreenshot('8_khata_radio_selected');
+    if (!step3Ok) {
+      throw new Error('चरण "खाता से" का चयन पुष्ट (Confirm) नहीं हो सका।');
+    }
 
     console.log(`\n🎯 7. Selecting and Confirming Khata No. "${searchValue}"...`);
     await delay(800);
@@ -638,7 +686,20 @@ export class ApnaKhataExtractor {
 
     // Select Khata number directly in <select> dropdown
     let khataConfirmed = false;
-    for (let attempt = 1; attempt <= 4; attempt++) {
+    for (let attempt = 1; attempt <= 6; attempt++) {
+      // Check if dropdown options are loaded
+      const hasOptions = await this.safeEvaluate(() => {
+        const selects = Array.from(document.querySelectorAll('select'));
+        return selects.some((s) => s.options && s.options.length > 1);
+      });
+
+      if (!hasOptions && attempt < 4) {
+        console.log(`   [Attempt ${attempt}/6] Waiting for Khata dropdown options to populate...`);
+        await this.waitForAsyncPostback(1500);
+        await delay(1000);
+        continue;
+      }
+
       const chosen = await this.safeEvaluate((targetKhata) => {
         const cleanTarget = targetKhata.replace(/[^\d]/g, '');
         const selects = Array.from(document.querySelectorAll('select'));
@@ -663,6 +724,9 @@ export class ApnaKhataExtractor {
               }
               if (typeof select.onchange === 'function') select.onchange();
               select.dispatchEvent(new Event('change', { bubbles: true }));
+              if (typeof __doPostBack === 'function') {
+                try { __doPostBack(select.name || select.id, ''); } catch {}
+              }
               return { confirmed: true, text, id: select.id, value: opt.value };
             }
           }
@@ -676,6 +740,10 @@ export class ApnaKhataExtractor {
         break;
       }
       await delay(1000);
+    }
+
+    if (!khataConfirmed) {
+      console.warn(`⚠️ [WARNING] Khata ${searchValue} was not confirmed in dropdown, continuing with postback...`);
     }
 
     await this.waitForAsyncPostback(1500);
