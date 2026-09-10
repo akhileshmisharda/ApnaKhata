@@ -709,89 +709,75 @@ export class ApnaKhataExtractor {
   /**
    * Stage 4: Select Khata Number in dropdown
    */
+  /**
+   * Stage 4: Place Khata Number in dropdown / textbox, wait 2 seconds, and capture screenshot
+   */
   async stage4_SelectKhataNumber(searchValue) {
-    this.log(`🎯 [Stage 4] Selecting Khata No. "${searchValue}" in dropdown...`);
+    this.log(`🎯 [Stage 4] Placing Khata No. "${searchValue}"...`);
     await this.dismissModals();
 
-    for (let attempt = 1; attempt <= 4; attempt++) {
-      const chosen = await this.safeEvaluate((targetKhata) => {
-        const cleanTarget = targetKhata.replace(/[^\d]/g, '');
-        const selects = Array.from(document.querySelectorAll('select'));
-        for (const select of selects) {
-          for (const opt of select.options) {
-            const text = opt.text.trim();
-            const val = opt.value.trim();
-            const cleanOptText = text.replace(/[^\d]/g, '');
-            const cleanOptVal = val.replace(/[^\d]/g, '');
+    const placed = await this.safeEvaluate((targetKhata) => {
+      const cleanTarget = targetKhata.replace(/[^\d]/g, '');
 
-            if (
-              cleanOptText === cleanTarget ||
-              cleanOptVal === cleanTarget ||
-              text === targetKhata ||
-              val === targetKhata ||
-              text.startsWith(cleanTarget + ' ') ||
-              text.startsWith(cleanTarget + '-')
-            ) {
-              select.value = opt.value;
-              if (select.getAttribute('onchange')) {
-                try { eval(select.getAttribute('onchange')); } catch {}
-              }
-              if (typeof select.onchange === 'function') select.onchange();
-              select.dispatchEvent(new Event('change', { bubbles: true }));
-              window.setTimeout(function () {
-                if (typeof __doPostBack === 'function' && select.getAttribute('onchange')?.includes('__doPostBack')) {
-                  __doPostBack(select.name || select.id.replace(/_/g, '$'), '');
-                }
-              }, 20);
-              return { confirmed: true, text, id: select.id, value: opt.value };
+      // 1. Select option in dropdown if present
+      const selects = Array.from(document.querySelectorAll('select'));
+      let dropdownSet = false;
+      for (const select of selects) {
+        for (const opt of select.options) {
+          const text = opt.text.trim();
+          const val = opt.value.trim();
+          const cleanOptText = text.replace(/[^\d]/g, '');
+          const cleanOptVal = val.replace(/[^\d]/g, '');
+
+          if (
+            cleanOptText === cleanTarget ||
+            cleanOptVal === cleanTarget ||
+            text === targetKhata ||
+            val === targetKhata ||
+            text.startsWith(cleanTarget + ' ') ||
+            text.startsWith(cleanTarget + '-')
+          ) {
+            select.value = opt.value;
+            if (select.getAttribute('onchange')) {
+              try { eval(select.getAttribute('onchange')); } catch {}
             }
+            if (typeof select.onchange === 'function') select.onchange();
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+            window.setTimeout(function () {
+              if (typeof __doPostBack === 'function') {
+                __doPostBack(select.name || select.id.replace(/_/g, '$'), '');
+              }
+            }, 20);
+            dropdownSet = true;
+            break;
           }
         }
-        return { confirmed: false };
-      }, searchValue);
-
-      if (chosen && chosen.confirmed) {
-        this.log(`✅ [CONFIRMED] Khata ${searchValue} selected in dropdown: "${chosen.text}"`);
-        break;
+        if (dropdownSet) break;
       }
-      await delay(200);
-      await this.waitForAsyncPostback(3000);
-    }
 
-    await this.waitForAsyncPostback(3000);
+      // 2. Set textbox value if present
+      const inputs = Array.from(document.querySelectorAll('input[type="text"], input:not([type])'));
+      for (const inp of inputs) {
+        inp.value = cleanTarget;
+        inp.dispatchEvent(new Event('input', { bubbles: true }));
+        inp.dispatchEvent(new Event('change', { bubbles: true }));
+      }
 
-    // Fast reactive wait for Jamabandi table and Kashtkaar details to render directly on screen
-    this.log('⏳ Waiting for Jamabandi Record Table on screen...');
-    await this.page.waitForFunction(() => {
-      const text = (document.body ? document.body.innerText : '') || '';
-      const rows = document.querySelectorAll('tr td');
-      return rows.length > 4 && (text.includes('खसरा') || text.includes('काश्तकार') || text.includes('रकबा') || text.includes('खातेदार'));
-    }, { polling: 50, timeout: 6000 }).catch(() => null);
+      return { dropdownSet };
+    }, searchValue);
 
-    await this.dismissModals();
-
-    const tableConfirmed = await this.safeEvaluate(() => {
-      const text = (document.body ? document.body.innerText : '') || '';
-      const rows = document.querySelectorAll('tr td');
-      const hasKhasraKeyword = text.includes('खसरा') || text.includes('काश्तकार') || text.includes('रकबा') || text.includes('खातेदार');
-      return {
-        hasTable: rows.length > 4,
-        hasKhasraKeyword,
-        rowCount: rows.length,
-        confirmed: rows.length > 4 && hasKhasraKeyword,
-      };
-    });
-
-    this.log(`📊 [CONFIRMED] Table Render Confirmation: ${JSON.stringify(tableConfirmed)}`);
-    await this.takeStepScreenshot('5_table_rendered');
+    this.log(`   Khata placement status: ${JSON.stringify(placed)}`);
+    this.log('⏳ Waiting 2 seconds for live page update...');
+    await delay(2000);
+    await this.takeStepScreenshot('5_khata_placed');
   }
 
   /**
-   * Step 6: Select "जमाबंदी की प्रतिलिपि" ➔ "वर्तमान नकल" ➔ "खाता से" ➔ Khata (525)
+   * Step 6: Select "जमाबंदी की प्रतिलिपि" ➔ "वर्तमान नकल" ➔ "खाता से" ➔ Place Khata (525)
    */
   async selectJamabandiAndKhata() {
     const { searchValue } = this.config;
-    this.log(`📌 6. Configuring Jamabandi Options for Khata "${searchValue}"...`);
+    this.log(`📌 6. Configuring options up to Khata "${searchValue}"...`);
 
     await this.dismissModals();
     await this.page.waitForSelector('input[type="radio"], label, table', { timeout: 8000 }).catch(() => {});
@@ -800,7 +786,6 @@ export class ApnaKhataExtractor {
     await this.stage2_SelectVartmanRadio();
     await this.stage3_SelectKhataRadio();
     await this.stage4_SelectKhataNumber(searchValue);
-    // Directly extract from active page without clicking "नकल (सूचनार्थ)" button
   }
 
   /**
