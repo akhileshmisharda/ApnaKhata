@@ -201,7 +201,7 @@ export class ApnaKhataExtractor {
   async takeStepScreenshot(stepKey) {
     if (!this.stepScreenshots) this.stepScreenshots = {};
     try {
-      const buf = await this.page.screenshot({ type: 'jpeg', quality: 65, fullPage: false });
+      const buf = await this.page.screenshot({ type: 'jpeg', quality: 85, fullPage: false });
       this.stepScreenshots[stepKey] = `data:image/jpeg;base64,${buf.toString('base64')}`;
     } catch (e) {}
   }
@@ -758,108 +758,15 @@ export class ApnaKhataExtractor {
       await this.waitForAsyncPostback(3000);
     }
 
-    await this.waitForAsyncPostback(4000);
-    // Fast wait for Nakal button to be visible
-    await this.page.waitForFunction(() => {
-      const allBtns = Array.from(document.querySelectorAll('input[type="submit"], input[type="button"], button, a.btn, a'));
-      return allBtns.some(b => {
-        const val = (b.getAttribute('value') || b.innerText || '').trim();
-        return val.includes('नकल (सूचनार्थ)') || val.includes('सूचनार्थ') || val.includes('नकल');
-      });
-    }, { polling: 50, timeout: 5000 }).catch(() => null);
-  }
+    await this.waitForAsyncPostback(3000);
 
-  /**
-   * Stage 5: Click "नकल (सूचनार्थ)" button & Confirm Table
-   */
-  async stage5_ClickNakalSuchnarth() {
-    this.log('👉 [Stage 5] Clicking "नकल (सूचनार्थ)" button...');
-    await this.dismissModals();
-
-    let clickedInfo = null;
-
-    for (let attempt = 1; attempt <= 4; attempt++) {
-      // 1. Native Click
-      try {
-        const buttonElements = await this.page.$$('input[type="submit"], input[type="button"], button, a.btn, a');
-        for (const btn of buttonElements) {
-          const text = await this.page.evaluate((el) => (el.value || el.innerText || el.id || '').trim(), btn);
-          if (
-            text.includes('नकल (सूचनार्थ)') ||
-            text.includes('सूचनार्थ') ||
-            (text.includes('नकल') && !text.includes('ई-हस्ताक्षरित') && !text.includes('अधिकृत')) ||
-            text.toLowerCase().includes('suchnarth') ||
-            text.toLowerCase().includes('btnnakal') ||
-            text.toLowerCase().includes('btn_suchnarth')
-          ) {
-            this.log(`   Found Nakal button: "${text}", clicking...`);
-            await btn.click().catch(() => {});
-            clickedInfo = { clicked: true, text };
-            break;
-          }
-        }
-      } catch (e) {}
-
-      // 2. DOM evaluate fallback
-      if (!clickedInfo) {
-        clickedInfo = await this.safeEvaluate(() => {
-          const allButtons = Array.from(
-            document.querySelectorAll('input[type="submit"], input[type="button"], button, a.btn, a')
-          );
-          for (const btn of allButtons) {
-            const val = (btn.getAttribute('value') || btn.innerText || '').trim();
-            const id = (btn.id || '').toLowerCase();
-            if (
-              val.includes('नकल (सूचनार्थ)') ||
-              val.includes('सूचनार्थ') ||
-              (val.includes('नकल') && !val.includes('ई-हस्ताक्षरित') && !val.includes('अधिकृत')) ||
-              id.includes('suchnarth') ||
-              id.includes('btnnakal') ||
-              id.includes('btn_suchnarth')
-            ) {
-              btn.click();
-              window.setTimeout(function () {
-                if (typeof __doPostBack === 'function') {
-                  try { __doPostBack(btn.name || btn.id.replace(/_/g, '$'), ''); } catch {}
-                }
-              }, 20);
-              return { clicked: true, text: val, id: btn.id };
-            }
-          }
-          return null;
-        });
-      }
-
-      if (clickedInfo && clickedInfo.clicked) {
-        this.log(`✅ [CONFIRMED] Nakal button clicked: "${clickedInfo.text}"`);
-        break;
-      }
-      await delay(300);
-      await this.waitForAsyncPostback(3000);
-    }
-
-    if (!clickedInfo || !clickedInfo.clicked) {
-      throw new Error('"नकल (सूचनार्थ)" बटन नहीं मिला या क्लिक नहीं हो सका।');
-    }
-
-    // Check if new tab opened
-    const pages = await this.browser.pages();
-    if (pages.length > 1) {
-      const latestPage = pages[pages.length - 1];
-      if (latestPage !== this.page) {
-        this.log(`📑 Switched to newly opened Jamabandi tab: ${latestPage.url()}`);
-        this.page = latestPage;
-        this.page.on('dialog', async (d) => await d.accept().catch(() => {}));
-      }
-    }
-
-    // Fast reactive wait for Jamabandi table to render
-    this.log('⏳ Waiting for Jamabandi Record Table to render...');
+    // Fast reactive wait for Jamabandi table and Kashtkaar details to render directly on screen
+    this.log('⏳ Waiting for Jamabandi Record Table on screen...');
     await this.page.waitForFunction(() => {
       const text = (document.body ? document.body.innerText : '') || '';
       const rows = document.querySelectorAll('tr td');
       return rows.length > 4 && (text.includes('खसरा') || text.includes('काश्तकार') || text.includes('रकबा') || text.includes('खातेदार'));
-    }, { polling: 50, timeout: 8000 }).catch(() => null);
+    }, { polling: 50, timeout: 6000 }).catch(() => null);
 
     await this.dismissModals();
 
@@ -876,10 +783,6 @@ export class ApnaKhataExtractor {
     });
 
     this.log(`📊 [CONFIRMED] Table Render Confirmation: ${JSON.stringify(tableConfirmed)}`);
-    if (!tableConfirmed || !tableConfirmed.confirmed) {
-      throw new Error('जमाबंदी नकल रिकॉर्ड तालिका लोड नहीं हो सकी (Table not rendered).');
-    }
-
     await this.takeStepScreenshot('5_table_rendered');
   }
 
@@ -897,7 +800,7 @@ export class ApnaKhataExtractor {
     await this.stage2_SelectVartmanRadio();
     await this.stage3_SelectKhataRadio();
     await this.stage4_SelectKhataNumber(searchValue);
-    await this.stage5_ClickNakalSuchnarth();
+    // Directly extract from active page without clicking "नकल (सूचनार्थ)" button
   }
 
   /**
@@ -1157,15 +1060,36 @@ export class ApnaKhataExtractor {
 
       await this.selectJamabandiAndKhata();
 
-      const data = await this.extractJamabandiData();
-      data.logs = this.logs || [];
-      const files = await this.saveOutputs(data);
+      // Capture final screenshot right after placing Khata number
+      const screenshotBuffer = await this.page.screenshot({
+        type: 'jpeg',
+        quality: 90,
+        fullPage: false,
+      });
+      const screenshotBase64 = `data:image/jpeg;base64,${screenshotBuffer.toString('base64')}`;
+      if (!this.stepScreenshots) this.stepScreenshots = {};
+      this.stepScreenshots['5_table_rendered'] = screenshotBase64;
+      this.stepScreenshots['5_khata_placed'] = screenshotBase64;
 
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
-      this.log(`🎉 Extraction finished successfully in ${elapsed}s!`);
-      data.executionTimeSeconds = elapsed;
+      this.log(`📸 Khata placed & Screenshot captured in ${elapsed}s! Process stopped as requested.`);
 
-      return { success: true, data, files };
+      const data = {
+        extractedAt: new Date().toISOString(),
+        url: this.page ? this.page.url() : '',
+        district: this.config.district || 'भीलवाड़ा',
+        tehsil: this.config.tehsil || 'बनेड़ा',
+        village: this.config.village || 'रायला - रायला - रायला',
+        khataNumber: this.config.searchValue || '525',
+        screenshotBase64: screenshotBase64,
+        stepScreenshots: this.stepScreenshots,
+        owners: [],
+        khasraRecords: [],
+        logs: this.logs || [],
+        executionTimeSeconds: elapsed,
+      };
+
+      return { success: true, data, files: [] };
     } catch (error) {
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
       this.log(`❌ Extraction Error (${elapsed}s): ${error.message}`);
