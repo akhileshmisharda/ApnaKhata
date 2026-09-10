@@ -590,186 +590,59 @@ export class ApnaKhataExtractor {
   }
 
   /**
-   * Stage 1: Select "जमाबंदी की प्रतिलिपि"
+   * Step 6: Directly Select "खाता से" ➔ Place Khata (525) ➔ Wait for Spinner to Disappear
    */
-  async stage1_SelectJamabandiRadio() {
-    this.log('👉 [Stage 1] Selecting "जमाबंदी की प्रतिलिपि"...');
+  async selectJamabandiAndKhata() {
+    const searchValue = String(this.config.searchValue || '525').trim();
+    this.log(`🎯 6. Selecting "खाता से" radio directly and placing Khata "${searchValue}"...`);
+
     await this.dismissModals();
 
-    const isConfirmed = await this.safeEvaluate(() => {
-      const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
-      return radios.some((r) => {
-        const p = (r.parentElement ? r.parentElement.innerText : '').trim();
-        return p.includes('खाता से') || p.includes('खसरा से') || r.id.toLowerCase().includes('rdo_khata') || r.id.toLowerCase().includes('vartman') || p.includes('वर्तमान नकल');
-      });
-    });
-
-    if (isConfirmed) {
-      this.log('✅ [CONFIRMED] Stage 1 ("जमाबंदी की प्रतिलिपि") active!');
-      return true;
-    }
-
+    // 1. Click "खाता से" Radio button directly (skips 3 redundant postback stages)
     await this.safeEvaluate(() => {
-      const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
-      const jamabandiRadio = radios.find((r) => {
+      const allRadios = Array.from(document.querySelectorAll('input[type="radio"]'));
+      const khataRadio = allRadios.find((r) => {
         const p = (r.parentElement ? r.parentElement.innerText : '').trim();
-        return r.id.includes('Khate_se') || p.includes('जमाबंदी की प्रतिलिपि');
-      }) || radios[0];
-
-      if (jamabandiRadio) {
-        jamabandiRadio.checked = true;
-        jamabandiRadio.setAttribute('checked', 'checked');
-        window.setTimeout(function () {
-          if (typeof __doPostBack === 'function') {
-            __doPostBack(jamabandiRadio.name || jamabandiRadio.id.replace(/_/g, '$'), '');
-          }
-        }, 20);
-      }
-    });
-
-    await this.waitForAsyncPostback(3000);
-    return true;
-  }
-
-  /**
-   * Stage 2: Select "वर्तमान नकल"
-   */
-  async stage2_SelectVartmanRadio() {
-    this.log('👉 [Stage 2] Selecting "वर्तमान नकल"...');
-    await this.dismissModals();
-
-    const isConfirmed = await this.safeEvaluate(() => {
-      const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
-      return radios.some((r) => {
-        const p = (r.parentElement ? r.parentElement.innerText : '').trim();
-        return p.includes('खाता से') || p.includes('खसरा से') || r.id.toLowerCase().includes('rdo_khata');
-      });
-    });
-
-    if (isConfirmed) {
-      this.log('✅ [CONFIRMED] Stage 2 Search Mode options active!');
-      return true;
-    }
-
-    await this.safeEvaluate(() => {
-      const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
-      const vartmanRadio = radios.find((r) => {
-        const p = (r.parentElement ? r.parentElement.innerText : '').trim();
-        return r.id.toLowerCase().includes('vartman') || p.includes('वर्तमान नकल');
+        const lbl = document.querySelector(`label[for="${r.id}"]`);
+        const lblText = lbl ? lbl.innerText : '';
+        return (
+          p.includes('खाता से') ||
+          lblText.includes('खाता से') ||
+          r.id.toLowerCase().includes('rdo_khata')
+        ) && !r.id.toLowerCase().includes('khate_se');
       });
 
-      if (vartmanRadio) {
-        vartmanRadio.checked = true;
-        vartmanRadio.setAttribute('checked', 'checked');
-        window.setTimeout(function () {
-          if (typeof __doPostBack === 'function') {
-            __doPostBack(vartmanRadio.name || vartmanRadio.id.replace(/_/g, '$'), '');
-          }
-        }, 20);
-      }
-    });
-
-    await this.waitForAsyncPostback(3000);
-    return true;
-  }
-
-  /**
-   * Stage 3: Select "खाता से"
-   */
-  async stage3_SelectKhataRadio() {
-    this.log('👉 [Stage 3] Selecting "खाता से"...');
-    await this.dismissModals();
-
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      const isAlready = await this.safeEvaluate(() => {
-        const selects = Array.from(document.querySelectorAll('select'));
-        return selects.some(
-          (s) =>
-            s.id.toLowerCase().includes('khata') ||
-            (s.options && Array.from(s.options).some((o) => /^\d+$/.test(o.value.trim()) || /^\d+$/.test(o.text.trim())))
-        );
-      });
-
-      if (isAlready) {
-        this.log('✅ [CONFIRMED] Stage 3 ("खाता से") active and Khata dropdown populated!');
-        return true;
-      }
-
-      await this.safeEvaluate(() => {
-        const allLabels = Array.from(document.querySelectorAll('label, td, span'));
-        for (const lbl of allLabels) {
-          const txt = (lbl.innerText || '').trim();
-          if (txt === 'खाता से' || txt.includes('खाता से')) {
-            lbl.click();
-            const forId = lbl.getAttribute('for');
-            if (forId) {
-              const r = document.getElementById(forId);
-              if (r) {
-                r.checked = true;
-                r.setAttribute('checked', 'checked');
-                window.setTimeout(function () {
-                  if (typeof __doPostBack === 'function') {
-                    __doPostBack(r.name || r.id.replace(/_/g, '$'), '');
-                  }
-                }, 20);
-                return;
-              }
-            }
+      if (khataRadio) {
+        khataRadio.checked = true;
+        khataRadio.setAttribute('checked', 'checked');
+        khataRadio.click();
+        if (typeof __doPostBack === 'function') {
+          __doPostBack(khataRadio.name || khataRadio.id.replace(/_/g, '$'), '');
+        }
+      } else {
+        // Fallback: click any label with "खाता से"
+        const allLabels = Array.from(document.querySelectorAll('label, span, td'));
+        for (const l of allLabels) {
+          if ((l.innerText || '').trim() === 'खाता से') {
+            l.click();
+            break;
           }
         }
-
-        const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
-        const khataRadio =
-          radios.find((r) => {
-            const p = (r.parentElement ? r.parentElement.innerText : '').trim();
-            return (p.includes('खाता से') || r.id.toLowerCase().includes('khata')) && !r.id.includes('Khate_se');
-          }) || (radios.length > 0 ? radios[0] : null);
-
-        if (khataRadio) {
-          khataRadio.checked = true;
-          khataRadio.setAttribute('checked', 'checked');
-          khataRadio.click();
-          window.setTimeout(function () {
-            if (typeof __doPostBack === 'function') {
-              __doPostBack(khataRadio.name || khataRadio.id.replace(/_/g, '$'), '');
-            }
-          }, 20);
-        }
-      });
-
-      await this.waitForAsyncPostback(4000);
-
-      // Fast reactive confirmation for Khata dropdown options
-      const isConfirmed = await this.page.waitForFunction(() => {
-        const selects = Array.from(document.querySelectorAll('select'));
-        return selects.some(
-          (s) =>
-            s.id.toLowerCase().includes('khata') ||
-            (s.options && Array.from(s.options).some((o) => /^\d+$/.test(o.value.trim()) || /^\d+$/.test(o.text.trim())))
-        );
-      }, { polling: 50, timeout: 4000 }).catch(() => null);
-
-      if (isConfirmed) {
-        this.log('✅ [CONFIRMED] Stage 3 ("खाता से") active and Khata dropdown populated!');
-        break;
       }
-    }
-    return true;
-  }
+    });
 
-  /**
-   * Stage 4: Place Khata Number in dropdown / textbox, wait for loading spinner to disappear, and capture clean screenshot
-   */
-  async stage4_SelectKhataNumber(searchValue) {
-    this.log(`🎯 [Stage 4] Placing Khata No. "${searchValue}"...`);
-    await this.dismissModals();
+    // 2. Reactively wait for Khata dropdown options to populate (50ms polling, max 3.5s)
+    await this.page.waitForFunction(() => {
+      const selects = Array.from(document.querySelectorAll('select'));
+      return selects.some((s) => s.options && s.options.length > 2);
+    }, { polling: 50, timeout: 3500 }).catch(() => {});
 
+    // 3. Select Khata Number in dropdown & set textbox, then trigger postback
     const placed = await this.safeEvaluate((targetKhata) => {
       const cleanTarget = targetKhata.replace(/[^\d]/g, '');
-
-      // 1. Select option in dropdown if present
       const selects = Array.from(document.querySelectorAll('select'));
       let dropdownSet = false;
+
       for (const select of selects) {
         for (const opt of select.options) {
           const text = opt.text.trim();
@@ -786,16 +659,11 @@ export class ApnaKhataExtractor {
             text.startsWith(cleanTarget + '-')
           ) {
             select.value = opt.value;
-            if (select.getAttribute('onchange')) {
-              try { eval(select.getAttribute('onchange')); } catch {}
-            }
             if (typeof select.onchange === 'function') select.onchange();
             select.dispatchEvent(new Event('change', { bubbles: true }));
-            window.setTimeout(function () {
-              if (typeof __doPostBack === 'function') {
-                __doPostBack(select.name || select.id.replace(/_/g, '$'), '');
-              }
-            }, 20);
+            if (typeof __doPostBack === 'function') {
+              __doPostBack(select.name || select.id.replace(/_/g, '$'), '');
+            }
             dropdownSet = true;
             break;
           }
@@ -803,7 +671,6 @@ export class ApnaKhataExtractor {
         if (dropdownSet) break;
       }
 
-      // 2. Set textbox value if present
       const inputs = Array.from(document.querySelectorAll('input[type="text"], input:not([type])'));
       for (const inp of inputs) {
         inp.value = cleanTarget;
@@ -815,27 +682,35 @@ export class ApnaKhataExtractor {
     }, searchValue);
 
     this.log(`   Khata placement status: ${JSON.stringify(placed)}`);
-    
-    // Wait for AJAX postback & loading spinner to completely disappear
-    await this.waitForLoadingToDisappear(12000);
+
+    // 4. Reactively wait for UpdateProgress / Loading Spinner to disappear (50ms polling, max 4.5s)
+    await this.page.waitForFunction(() => {
+      if (typeof Sys !== 'undefined' && Sys.WebForms && Sys.WebForms.PageRequestManager) {
+        if (Sys.WebForms.PageRequestManager.getInstance().get_isInAsyncPostBack()) {
+          return false;
+        }
+      }
+      const up = document.getElementById('UpdateProgress1') || document.querySelector('[id*="UpdateProgress"]');
+      if (up) {
+        const style = window.getComputedStyle(up);
+        if (style.display !== 'none' && style.visibility !== 'hidden' && up.offsetWidth > 0) {
+          return false;
+        }
+      }
+      return true;
+    }, { polling: 50, timeout: 4500 }).catch(() => {});
+
+    // Forcibly hide any lingering loading overlay
+    await this.safeEvaluate(() => {
+      const up = document.querySelectorAll('[id*="UpdateProgress"], [id*="Progress"], [class*="progress"]');
+      up.forEach((el) => {
+        try { el.style.display = 'none'; } catch {}
+      });
+    });
+
+    await delay(150);
     await this.dismissModals();
     await this.takeStepScreenshot('5_khata_placed');
-  }
-
-  /**
-   * Step 6: Select "जमाबंदी की प्रतिलिपि" ➔ "वर्तमान नकल" ➔ "खाता से" ➔ Place Khata (525)
-   */
-  async selectJamabandiAndKhata() {
-    const { searchValue } = this.config;
-    this.log(`📌 6. Configuring options up to Khata "${searchValue}"...`);
-
-    await this.dismissModals();
-    await this.page.waitForSelector('input[type="radio"], label, table', { timeout: 8000 }).catch(() => {});
-
-    await this.stage1_SelectJamabandiRadio();
-    await this.stage2_SelectVartmanRadio();
-    await this.stage3_SelectKhataRadio();
-    await this.stage4_SelectKhataNumber(searchValue);
   }
 
   /**
@@ -1095,19 +970,18 @@ export class ApnaKhataExtractor {
 
       await this.selectJamabandiAndKhata();
 
-      // Ensure loading spinner is completely gone before final screenshot
-      await this.waitForLoadingToDisappear(5000);
-      await this.dismissModals();
-
-      const screenshotBuffer = await this.page.screenshot({
-        type: 'jpeg',
-        quality: 90,
-        fullPage: false,
-      });
-      const screenshotBase64 = `data:image/jpeg;base64,${screenshotBuffer.toString('base64')}`;
-      if (!this.stepScreenshots) this.stepScreenshots = {};
-      this.stepScreenshots['5_table_rendered'] = screenshotBase64;
-      this.stepScreenshots['5_khata_placed'] = screenshotBase64;
+      let screenshotBase64 = this.stepScreenshots['5_khata_placed'];
+      if (!screenshotBase64) {
+        const screenshotBuffer = await this.page.screenshot({
+          type: 'jpeg',
+          quality: 90,
+          fullPage: false,
+        });
+        screenshotBase64 = `data:image/jpeg;base64,${screenshotBuffer.toString('base64')}`;
+        if (!this.stepScreenshots) this.stepScreenshots = {};
+        this.stepScreenshots['5_table_rendered'] = screenshotBase64;
+        this.stepScreenshots['5_khata_placed'] = screenshotBase64;
+      }
 
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
       this.log(`📸 Khata placed, Loading icon gone & Clean Screenshot captured in ${elapsed}s! Process stopped.`);
