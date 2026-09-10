@@ -114,6 +114,99 @@ export class ApnaKhataExtractor {
     });
   }
 
+  async safeEvaluate(fn, ...args) {
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      try {
+        return await this.page.evaluate(fn, ...args);
+      } catch (err) {
+        const msg = (err && err.message) ? err.message : String(err);
+        if (
+          msg.includes('Execution context was destroyed') ||
+          msg.includes('Target closed') ||
+          msg.includes('Cannot find context with specified id') ||
+          msg.includes('context') ||
+          msg.includes('navigation')
+        ) {
+          this.log(`⏳ Navigation detected (attempt ${attempt}/5), waiting for DOM...`);
+          await delay(1500);
+          await this.page.waitForSelector('body', { timeout: 10000 }).catch(() => {});
+        } else {
+          throw err;
+        }
+      }
+    }
+    return null;
+  }
+
+  async dismissModals() {
+    try {
+      await this.safeEvaluate(() => {
+        // 1. Click any Close / x / Dismiss buttons on modal popups
+        const closeButtons = Array.from(document.querySelectorAll('button, a, span, input[type="button"]')).filter((el) => {
+          const text = (el.innerText || el.getAttribute('value') || '').trim().toLowerCase();
+          const ariaLabel = (el.getAttribute('aria-label') || '').toLowerCase();
+          const cls = (el.className || '').toLowerCase();
+          return (
+            text === 'close' ||
+            text === 'बंद करें' ||
+            text === '×' ||
+            text === 'x' ||
+            ariaLabel.includes('close') ||
+            cls.includes('btn-close') ||
+            cls.includes('close')
+          );
+        });
+        closeButtons.forEach((b) => {
+          try { b.click(); } catch {}
+        });
+
+        // 2. Hide any modal backdrops or "आवेदन करें" overlays
+        const overlays = document.querySelectorAll('.modal.show, .modal[style*="display: block"], .modal-backdrop, #myModal, #ModalPopup');
+        overlays.forEach((el) => {
+          try {
+            el.classList.remove('show');
+            el.style.display = 'none';
+          } catch {}
+        });
+      });
+    } catch {}
+  }
+
+  async waitForAsyncPostback(ms = 1200) {
+    try {
+      await this.page.waitForFunction(() => {
+        if (typeof Sys !== 'undefined' && Sys.WebForms && Sys.WebForms.PageRequestManager) {
+          return !Sys.WebForms.PageRequestManager.getInstance().get_isInAsyncPostBack();
+        }
+        return true;
+      }, { timeout: 6000 }).catch(() => {});
+    } catch (e) {
+      // Ignore navigation / context destroyed during postback
+    }
+    await delay(ms);
+  }
+
+  async takeStepScreenshot(stepKey) {
+    if (!this.stepScreenshots) this.stepScreenshots = {};
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        await delay(500);
+        const buf = await this.page.screenshot({ type: 'jpeg', quality: 75, fullPage: false });
+        this.stepScreenshots[stepKey] = `data:image/jpeg;base64,${buf.toString('base64')}`;
+        this.log(`📸 Captured step screenshot: "${stepKey}"`);
+        break;
+      } catch (e) {
+        if (e.message.includes('Execution context') || e.message.includes('Target closed') || e.message.includes('navigating')) {
+          this.log(`⏳ Screenshot delayed due to navigation (${stepKey})...`);
+          await delay(1200);
+        } else {
+          this.log(`⚠️ Note: Screenshot ${stepKey}: ${e.message}`);
+          break;
+        }
+      }
+    }
+  }
+
   /**
    * Step 1: Open Homepage, dismiss popup, and click exact "जमाबंदी नकल" button
    */
