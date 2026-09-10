@@ -535,13 +535,6 @@ export class ApnaKhataExtractor {
    * Stage 1: Select "जमाबंदी की प्रतिलिपि"
    */
   async stage1_SelectJamabandiRadio() {
-    this.log('👉 [Stage 1: जमाबंदी की प्रतिलिपि] Selecting "जमाबंदी की प्रतिलिपि"...');
-    await this.dismissModals();
-
-  /**
-   * Stage 1: Select "जमाबंदी की प्रतिलिपि"
-   */
-  async stage1_SelectJamabandiRadio() {
     this.log('👉 [Stage 1] Selecting "जमाबंदी की प्रतिलिपि"...');
     await this.dismissModals();
 

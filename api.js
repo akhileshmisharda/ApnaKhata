@@ -71,7 +71,8 @@ async function getBrowser() {
 app.get('/', (req, res) => {
   res.json({
     status: 'online',
-    message: '🏛️ Rajasthan Apna Khata Jamabandi Extraction API is Live & High-Performance!',
+    version: '2.0.0-instant-screenshot',
+    message: '🏛️ Rajasthan Apna Khata Jamabandi Extraction API is Live & Fast!',
     browserWarm: Boolean(globalBrowser && globalBrowser.isConnected()),
     endpoints: {
       'GET /api/jamabandi': {
