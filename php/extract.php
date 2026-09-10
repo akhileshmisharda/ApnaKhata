@@ -21,7 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SERVER['HTTP_X_REQUESTED_WI
         'tehsil'      => $data['tehsil'] ?? 'बनेड़ा',
         'village'     => $data['village'] ?? 'रायला - रायला - रायला',
         'searchBy'    => 'khata',
-        'searchValue' => $data['searchValue'] ?? '560',
+        'searchValue' => $data['searchValue'] ?? '525',
         'headless'    => true
     ], JSON_UNESCAPED_UNICODE);
 
@@ -347,20 +347,13 @@ document.getElementById('extractForm').addEventListener('submit', async function
         secondsElapsed++;
         document.getElementById('timerBadge').textContent = `⏱️ ${secondsElapsed}s बीत चुके`;
 
-        if (secondsElapsed === 2) updateStep(2);
-        else if (secondsElapsed === 4) updateStep(3);
-        else if (secondsElapsed === 7) updateStep(4);
-        else if (secondsElapsed === 11) updateStep(5);
-        else if (secondsElapsed === 15) updateStep(6);
-        else if (secondsElapsed === 20) updateStep(7);
-        else if (secondsElapsed === 25) updateStep(8);
-        else if (secondsElapsed === 29) updateStep(9);
-        else if (secondsElapsed === 33) updateStep(10);
-        else if (secondsElapsed === 37) updateStep(11);
-        else if (secondsElapsed === 42) updateStep(12);
-        else if (secondsElapsed === 47) updateStep(13);
-        else if (secondsElapsed === 53) updateStep(14);
-        else if (secondsElapsed === 58) updateStep(15);
+        if (secondsElapsed === 1) updateStep(2);
+        else if (secondsElapsed === 2) updateStep(4);
+        else if (secondsElapsed === 3) updateStep(6);
+        else if (secondsElapsed === 4) updateStep(8);
+        else if (secondsElapsed === 6) updateStep(10);
+        else if (secondsElapsed === 8) updateStep(12);
+        else if (secondsElapsed === 10) updateStep(14);
     }, 1000);
 
     try {
