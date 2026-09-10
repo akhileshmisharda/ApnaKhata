@@ -305,6 +305,27 @@ export class ApnaKhataExtractor {
     await delay(2000);
   }
 
+  async waitForAsyncPostback(ms = 1200) {
+    await this.page.waitForFunction(() => {
+      if (typeof Sys !== 'undefined' && Sys.WebForms && Sys.WebForms.PageRequestManager) {
+        return !Sys.WebForms.PageRequestManager.getInstance().get_isInAsyncPostBack();
+      }
+      return true;
+    }, { timeout: 6000 }).catch(() => {});
+    await delay(ms);
+  }
+
+  async takeStepScreenshot(stepKey) {
+    if (!this.stepScreenshots) this.stepScreenshots = {};
+    try {
+      const buf = await this.page.screenshot({ type: 'jpeg', quality: 75, fullPage: false });
+      this.stepScreenshots[stepKey] = `data:image/jpeg;base64,${buf.toString('base64')}`;
+      console.log(`📸 Captured step screenshot: "${stepKey}"`);
+    } catch (e) {
+      console.warn(`Could not capture screenshot for ${stepKey}:`, e.message);
+    }
+  }
+
   /**
    * Step 5: Select "जमाबंदी की प्रतिलिपि" ➔ "वर्तमान नकल" ➔ "खाता से" ➔ Khata 560
    */
@@ -315,6 +336,7 @@ export class ApnaKhataExtractor {
     // Wait explicitly for the page radios to load
     await this.page.waitForSelector('input[type="radio"], label, table', { timeout: 15000 }).catch(() => {});
     await delay(1000);
+    await this.takeStepScreenshot('1_page_opened');
 
     const clickAndVerifyRadio = async (keywords, verifyKeywords, stepName, maxRetries = 4) => {
       console.log(`👉 [Step] Selecting ${stepName}...`);
@@ -370,15 +392,7 @@ export class ApnaKhataExtractor {
 
         console.log(`   Attempt ${attempt} for ${stepName}: ${JSON.stringify(clicked)}`);
 
-        // Wait for ASP.NET Postback
-        await this.page.waitForFunction(() => {
-          if (typeof Sys !== 'undefined' && Sys.WebForms && Sys.WebForms.PageRequestManager) {
-            return !Sys.WebForms.PageRequestManager.getInstance().get_isInAsyncPostBack();
-          }
-          return true;
-        }, { timeout: 5000 }).catch(() => {});
-
-        await delay(1200);
+        await this.waitForAsyncPostback(1200);
 
         // Verify if the next expected options are visible on screen
         if (verifyKeywords && verifyKeywords.length > 0) {
@@ -402,12 +416,15 @@ export class ApnaKhataExtractor {
 
     // 1. Select "जमाबंदी की प्रतिलिपि" -> Verify "वर्तमान नकल" appears
     await clickAndVerifyRadio(['जमाबंदी की प्रतिलिपि', 'जमाबंदी'], ['वर्तमान नकल', 'दिनांक से', 'गत नकल'], 'Radio 1: "जमाबंदी की प्रतिलिपि"');
+    await this.takeStepScreenshot('2_jamabandi_selected');
 
     // 2. Select "वर्तमान नकल" -> Verify "खाता से" appears
     await clickAndVerifyRadio(['वर्तमान नकल', 'वर्तमान'], ['खाता से', 'खसरा से', 'नाम से'], 'Radio 2: "वर्तमान नकल"');
+    await this.takeStepScreenshot('3_vartman_selected');
 
     // 3. Select "खाता से" -> Verify Khata selection dropdown/button appears
     await clickAndVerifyRadio(['खाता से', 'खाता'], ['खाता', 'चुनें', 'select', '560'], 'Radio 3: "खाता से"');
+    await this.takeStepScreenshot('4_khata_selected');
 
     console.log(`🎯 7. Selecting Khata No. "${searchValue}"...`);
     await delay(800);
@@ -486,8 +503,9 @@ export class ApnaKhataExtractor {
 
     // Wait for Jamabandi table to render on page
     console.log('⏳ Waiting for Jamabandi Record Table to render...');
-    await waitForAsyncPostback(2000);
-    await delay(1000);
+    await this.waitForAsyncPostback(2500);
+    await delay(1200);
+    await this.takeStepScreenshot('5_table_rendered');
   }
 
   /**
@@ -651,16 +669,20 @@ export class ApnaKhataExtractor {
       return result;
     }, searchValue);
 
-    // Capture Base64 Screenshot of rendered page
-    try {
-      const screenshotBuffer = await this.page.screenshot({
-        type: 'jpeg',
-        quality: 80,
-      });
-      extractedData.screenshotBase64 = `data:image/jpeg;base64,${screenshotBuffer.toString('base64')}`;
-      console.log('📸 Captured official web page screenshot.');
-    } catch (e) {
-      console.warn('⚠️ Screenshot capture note:', e.message);
+    // Attach Step Screenshots dictionary & Main Screenshot
+    extractedData.stepScreenshots = this.stepScreenshots || {};
+    if (this.stepScreenshots && this.stepScreenshots.step5_table_rendered) {
+      extractedData.screenshotBase64 = this.stepScreenshots.step5_table_rendered;
+    } else {
+      try {
+        const screenshotBuffer = await this.page.screenshot({
+          type: 'jpeg',
+          quality: 80,
+        });
+        extractedData.screenshotBase64 = `data:image/jpeg;base64,${screenshotBuffer.toString('base64')}`;
+      } catch (e) {
+        console.warn('⚠️ Screenshot capture note:', e.message);
+      }
     }
 
     console.log('\n================ JAMABANDI RECORD EXTRACTED ================');

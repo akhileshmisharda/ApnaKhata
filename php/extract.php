@@ -207,19 +207,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SERVER['HTTP_X_REQUESTED_WI
                 </div>
             </div>
 
-            <!-- Official Webpage Screenshot Preview Card -->
+            <!-- Official Webpage Screenshot Preview Card with Multi-Step Tabs -->
             <div id="screenshotCard" class="card border p-3 rounded-3 bg-light d-none">
                 <div class="d-flex justify-content-between align-items-center mb-2">
                     <h5 class="text-secondary fw-bold mb-0">
-                        📸 आधिकारिक पोर्टल स्क्रीनशॉट (Official Web Page Preview)
+                        📸 चरण-दर-चरण स्क्रीनशॉट गैलरी (Step-by-Step Live Screenshots)
                     </h5>
-                    <a id="downloadScreenshotBtn" href="#" download="apnakhata_jamabandi.jpg" class="btn btn-sm btn-outline-primary">
+                    <a id="downloadScreenshotBtn" href="#" download="apnakhata_step_screenshot.jpg" class="btn btn-sm btn-outline-primary">
                         💾 डाउनलोड स्क्रीनशॉट
                     </a>
                 </div>
-                <p class="text-muted small mb-2">राजस्थान अपना खाता पोर्टल पर खाता सं. चुनने के बाद लाइव रेंडर हुआ आधिकारिक पृष्ठ:</p>
+                <p class="text-muted small mb-2">प्रत्येक चरण पर वेबपेज की वास्तविक स्थिति देखने के लिए नीचे दिए गए बटन पर क्लिक करें:</p>
+                
+                <!-- Step Buttons -->
+                <div class="btn-group w-100 mb-3 flex-wrap" role="group" id="stepButtonsGroup">
+                    <button type="button" class="btn btn-outline-secondary active btn-sm" onclick="showStepImg('1_page_opened', this)">1️⃣ पेज खुला</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="showStepImg('2_jamabandi_selected', this)">2️⃣ जमाबंदी नकल</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="showStepImg('3_vartman_selected', this)">3️⃣ वर्तमान नकल</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="showStepImg('4_khata_selected', this)">4️⃣ खाता से</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="showStepImg('5_table_rendered', this)">5️⃣ फाइनल टेबल</button>
+                </div>
+
                 <div class="text-center p-2 bg-white rounded border">
-                    <img id="webScreenshotImg" src="" alt="Apna Khata Official Screenshot" class="img-fluid rounded shadow-sm border" style="max-height: 550px; width: auto;">
+                    <img id="webScreenshotImg" src="" alt="Apna Khata Step Screenshot" class="img-fluid rounded shadow-sm border" style="max-height: 550px; width: auto;">
                 </div>
             </div>
 
@@ -231,6 +241,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SERVER['HTTP_X_REQUESTED_WI
 <script>
 let timerInterval = null;
 let secondsElapsed = 0;
+let currentStepScreenshots = {};
+
+function showStepImg(stepKey, btnEl) {
+    if (btnEl) {
+        document.querySelectorAll('#stepButtonsGroup button').forEach(b => b.classList.remove('active', 'btn-primary'));
+        btnEl.classList.add('active', 'btn-primary');
+        btnEl.classList.remove('btn-outline-secondary');
+    }
+    const imgEl = document.getElementById('webScreenshotImg');
+    const dlBtn = document.getElementById('downloadScreenshotBtn');
+    if (currentStepScreenshots && currentStepScreenshots[stepKey]) {
+        imgEl.src = currentStepScreenshots[stepKey];
+        dlBtn.href = currentStepScreenshots[stepKey];
+    } else if (currentStepScreenshots && currentStepScreenshots['5_table_rendered']) {
+        imgEl.src = currentStepScreenshots['5_table_rendered'];
+        dlBtn.href = currentStepScreenshots['5_table_rendered'];
+    }
+}
 
 function logStatus(msg) {
     const consoleEl = document.getElementById('liveConsole');
@@ -317,7 +345,7 @@ document.getElementById('extractForm').addEventListener('submit', async function
 
         if (data.status === 'success' && data.data) {
             updateStep(6);
-            logStatus(`✅ SUCCESS! Jamabandi record and screenshot extracted in ${secondsElapsed}s.`);
+            logStatus(`✅ SUCCESS! Jamabandi record and screenshots extracted in ${secondsElapsed}s.`);
             renderResults(data.data, searchValue);
         } else {
             throw new Error(data.message || 'Extraction failed or returned invalid response.');
@@ -380,14 +408,19 @@ function renderResults(result, searchVal) {
         tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted">कोई खसरा रिकॉर्ड नहीं मिला</td></tr>`;
     }
 
-    // Render Screenshot if available
+    // Render Step Screenshots
     const screenshotCard = document.getElementById('screenshotCard');
-    const screenshotImg = document.getElementById('webScreenshotImg');
-    const downloadBtn = document.getElementById('downloadScreenshotBtn');
-    if (result.screenshotBase64) {
-        screenshotImg.src = result.screenshotBase64;
-        downloadBtn.href = result.screenshotBase64;
+    currentStepScreenshots = result.stepScreenshots || {};
+    if (result.screenshotBase64 && !currentStepScreenshots['5_table_rendered']) {
+        currentStepScreenshots['5_table_rendered'] = result.screenshotBase64;
+    }
+
+    if (Object.keys(currentStepScreenshots).length > 0) {
         screenshotCard.classList.remove('d-none');
+        // Show last available step by default
+        const keys = Object.keys(currentStepScreenshots);
+        const lastKey = keys[keys.length - 1];
+        showStepImg(lastKey, document.querySelector(`#stepButtonsGroup button:nth-child(${keys.length})`));
     } else {
         screenshotCard.classList.add('d-none');
     }

@@ -93,6 +93,7 @@ async function handleJamabandiExtraction(req, res) {
           totalRakbaHectare: totalRakba > 0 ? totalRakba.toFixed(4) : null,
           khasraRecords: result.data.khasraRecords || [],
           screenshotBase64: result.data.screenshotBase64 || null,
+          stepScreenshots: result.data.stepScreenshots || {},
           extractedAt: result.data.extractedAt || new Date().toISOString(),
         },
       });
