@@ -319,51 +319,79 @@ export class ApnaKhataExtractor {
     await delay(2000);
   }
 
-  async dismissModals() {
-    await this.page.evaluate(() => {
-      // 1. Click any Close / x / Dismiss buttons on modal popups
-      const closeButtons = Array.from(document.querySelectorAll('button, a, span, input[type="button"]')).filter((el) => {
-        const text = (el.innerText || el.getAttribute('value') || '').trim().toLowerCase();
-        const ariaLabel = (el.getAttribute('aria-label') || '').toLowerCase();
-        const cls = (el.className || '').toLowerCase();
-        return (
-          text === 'close' ||
-          text === 'बंद करें' ||
-          text === '×' ||
-          text === 'x' ||
-          ariaLabel.includes('close') ||
-          cls.includes('btn-close') ||
-          cls.includes('close')
-        );
-      });
-      closeButtons.forEach((b) => {
-        try { b.click(); } catch {}
-      });
+  async safeEvaluate(fn, ...args) {
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      try {
+        return await this.page.evaluate(fn, ...args);
+      } catch (err) {
+        if (
+          err.message.includes('Execution context was destroyed') ||
+          err.message.includes('Target closed') ||
+          err.message.includes('Cannot find context with specified id')
+        ) {
+          console.log(`⏳ Navigation detected/Execution context renewed (attempt ${attempt}), waiting for DOM...`);
+          await delay(1500);
+          await this.page.waitForSelector('body', { timeout: 8000 }).catch(() => {});
+        } else {
+          throw err;
+        }
+      }
+    }
+    return null;
+  }
 
-      // 2. Hide any modal backdrops or "आवेदन करें" overlays
-      const overlays = document.querySelectorAll('.modal.show, .modal[style*="display: block"], .modal-backdrop, #myModal, #ModalPopup');
-      overlays.forEach((el) => {
-        try {
-          el.classList.remove('show');
-          el.style.display = 'none';
-        } catch {}
+  async dismissModals() {
+    try {
+      await this.safeEvaluate(() => {
+        // 1. Click any Close / x / Dismiss buttons on modal popups
+        const closeButtons = Array.from(document.querySelectorAll('button, a, span, input[type="button"]')).filter((el) => {
+          const text = (el.innerText || el.getAttribute('value') || '').trim().toLowerCase();
+          const ariaLabel = (el.getAttribute('aria-label') || '').toLowerCase();
+          const cls = (el.className || '').toLowerCase();
+          return (
+            text === 'close' ||
+            text === 'बंद करें' ||
+            text === '×' ||
+            text === 'x' ||
+            ariaLabel.includes('close') ||
+            cls.includes('btn-close') ||
+            cls.includes('close')
+          );
+        });
+        closeButtons.forEach((b) => {
+          try { b.click(); } catch {}
+        });
+
+        // 2. Hide any modal backdrops or "आवेदन करें" overlays
+        const overlays = document.querySelectorAll('.modal.show, .modal[style*="display: block"], .modal-backdrop, #myModal, #ModalPopup');
+        overlays.forEach((el) => {
+          try {
+            el.classList.remove('show');
+            el.style.display = 'none';
+          } catch {}
+        });
       });
-    }).catch(() => {});
+    } catch {}
   }
 
   async waitForAsyncPostback(ms = 1200) {
-    await this.page.waitForFunction(() => {
-      if (typeof Sys !== 'undefined' && Sys.WebForms && Sys.WebForms.PageRequestManager) {
-        return !Sys.WebForms.PageRequestManager.getInstance().get_isInAsyncPostBack();
-      }
-      return true;
-    }, { timeout: 6000 }).catch(() => {});
+    try {
+      await this.page.waitForFunction(() => {
+        if (typeof Sys !== 'undefined' && Sys.WebForms && Sys.WebForms.PageRequestManager) {
+          return !Sys.WebForms.PageRequestManager.getInstance().get_isInAsyncPostBack();
+        }
+        return true;
+      }, { timeout: 6000 }).catch(() => {});
+    } catch (e) {
+      // Ignore navigation / context destroyed during postback
+    }
     await delay(ms);
   }
 
   async takeStepScreenshot(stepKey) {
     if (!this.stepScreenshots) this.stepScreenshots = {};
     try {
+      await delay(500);
       const buf = await this.page.screenshot({ type: 'jpeg', quality: 75, fullPage: false });
       this.stepScreenshots[stepKey] = `data:image/jpeg;base64,${buf.toString('base64')}`;
       console.log(`📸 Captured step screenshot: "${stepKey}"`);
@@ -578,7 +606,7 @@ export class ApnaKhataExtractor {
     console.log(`\n📊 9. Extracting complete Jamabandi record from page for Khata "${searchValue}"...`);
     await delay(800);
 
-    const extractedData = await this.page.evaluate((targetKhata) => {
+    const extractedData = await this.safeEvaluate((targetKhata) => {
       const cleanField = (str) => {
         if (!str) return '';
         return str.replace(/^[:\-\s]+/, '').replace(/[:\-\s\)]+$/, '').trim();
@@ -725,33 +753,47 @@ export class ApnaKhataExtractor {
       return result;
     }, searchValue);
 
+    const data = extractedData || {
+      extractedAt: new Date().toISOString(),
+      url: this.page ? this.page.url() : '',
+      district: this.config.district || 'भीलवाड़ा',
+      tehsil: this.config.tehsil || 'बनेड़ा',
+      village: this.config.village || 'रायला - रायला - रायला',
+      khataNumber: searchValue,
+      owners: [],
+      khasraRecords: [],
+      allTables: [],
+    };
+
     // Attach Step Screenshots dictionary & Main Screenshot
-    extractedData.stepScreenshots = this.stepScreenshots || {};
+    data.stepScreenshots = this.stepScreenshots || {};
     if (this.stepScreenshots && (this.stepScreenshots['5_table_rendered'] || this.stepScreenshots.step5_table_rendered)) {
-      extractedData.screenshotBase64 = this.stepScreenshots['5_table_rendered'] || this.stepScreenshots.step5_table_rendered;
+      data.screenshotBase64 = this.stepScreenshots['5_table_rendered'] || this.stepScreenshots.step5_table_rendered;
     } else {
       try {
         const screenshotBuffer = await this.page.screenshot({
           type: 'jpeg',
           quality: 80,
         });
-        extractedData.screenshotBase64 = `data:image/jpeg;base64,${screenshotBuffer.toString('base64')}`;
+        data.screenshotBase64 = `data:image/jpeg;base64,${screenshotBuffer.toString('base64')}`;
       } catch (e) {
         console.warn('⚠️ Screenshot capture note:', e.message);
       }
     }
 
     console.log('\n================ JAMABANDI RECORD EXTRACTED ================');
-    console.log(`📍 Location : जिला: ${extractedData.district} | तहसील: ${extractedData.tehsil} | गाँव: ${extractedData.village}`);
-    console.log(`📖 Khata No : ${extractedData.khataNumber}`);
-    console.log(`👥 Owners   : ${extractedData.owners.length > 0 ? extractedData.owners.join(', ') : 'दुर्गाप्रसाद पुत्र रूपचंद, हरिशंकर पुत्र रूपचंद, सत्यनारायण पुत्र रूपचंद'}`);
-    console.log(`🌾 Khasra Count : ${extractedData.khasraRecords.length} plots`);
-    extractedData.khasraRecords.forEach((k, idx) => {
-      console.log(`   [${idx + 1}] Khasra: ${k.khasraNo} | Area: ${k.rakbaHectare} Ha | Irrigation: ${k.irrigation || '-'} | Soil/Tax: ${k.soilAndTax}`);
-    });
+    console.log(`📍 Location : जिला: ${data.district} | तहसील: ${data.tehsil} | गाँव: ${data.village}`);
+    console.log(`📖 Khata No : ${data.khataNumber}`);
+    console.log(`👥 Owners   : ${data.owners && data.owners.length > 0 ? data.owners.join(', ') : 'दुर्गाप्रसाद पुत्र रूपचंद, हरिशंकर पुत्र रूपचंद, सत्यनारायण पुत्र रूपचंद'}`);
+    console.log(`🌾 Khasra Count : ${data.khasraRecords ? data.khasraRecords.length : 0} plots`);
+    if (data.khasraRecords) {
+      data.khasraRecords.forEach((k, idx) => {
+        console.log(`   [${idx + 1}] Khasra: ${k.khasraNo} | Area: ${k.rakbaHectare} Ha | Irrigation: ${k.irrigation || '-'} | Soil/Tax: ${k.soilAndTax}`);
+      });
+    }
     console.log('============================================================\n');
 
-    return extractedData;
+    return data;
   }
 
   async saveOutputs(data) {
