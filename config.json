@@ -1,0 +1,17 @@
+{
+  "district": "भीलवाड़ा",
+  "tehsil": "बनेड़ा",
+  "village": "रायला - रायला - रायला",
+  "searchBy": "khata",
+  "searchValue": "560",
+  "options": {
+    "headless": false,
+    "slowMo": 60,
+    "timeout": 90000,
+    "saveScreenshot": true,
+    "savePdf": true,
+    "saveCsv": true,
+    "saveJson": true,
+    "outputDir": "./output"
+  }
+}

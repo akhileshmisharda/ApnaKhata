@@ -1,0 +1,12 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Extracted outputs & artifacts
+output/
+*.log
+
+# Environment & OS files
+.env
+.DS_Store
+Thumbs.db

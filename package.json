@@ -1,0 +1,28 @@
+{
+  "name": "apna-khata-jamabandi-extractor",
+  "version": "1.0.0",
+  "description": "Extract Jamabandi land records from Rajasthan Apna Khata portal using Puppeteer",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "interactive": "node src/interactive.js",
+    "server": "node api.js"
+  },
+  "keywords": [
+    "puppeteer",
+    "apna-khata",
+    "jamabandi",
+    "land-records",
+    "scraper",
+    "rajasthan"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.19.2",
+    "puppeteer": "^22.0.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
+  }
+}
