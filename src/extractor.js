@@ -602,18 +602,26 @@ export class ApnaKhataExtractor {
     await this.dismissModals();
 
     for (let attempt = 1; attempt <= 4; attempt++) {
-      // Check if Stage 1 is already fulfilled (i.e. 'vartman' radio or 'वर्तमान नकल' text present in radio table)
+      // Check if Stage 1 is already fulfilled (either 'वर्तमान नकल' is visible OR search options 'खाता से' are visible)
       const isConfirmed = await this.safeEvaluate(() => {
         const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
-        return radios.some((r) =>
-          r.id.toLowerCase().includes('vartman') ||
-          r.value.toLowerCase().includes('vartman') ||
-          (r.parentElement && r.parentElement.innerText.includes('वर्तमान नकल'))
-        );
+
+        // If Chosala mode: 'विकल्प चुने' / 'खाता से' / 'खसरा से' are already present
+        const hasSearchModes = radios.some((r) => {
+          const p = (r.parentElement ? r.parentElement.innerText : '').trim();
+          return p.includes('खाता से') || p.includes('खसरा से') || r.id.toLowerCase().includes('rdo_khata');
+        });
+
+        const hasVartman = radios.some((r) => {
+          const p = (r.parentElement ? r.parentElement.innerText : '').trim();
+          return r.id.toLowerCase().includes('vartman') || p.includes('वर्तमान नकल');
+        });
+
+        return hasSearchModes || hasVartman;
       });
 
       if (isConfirmed) {
-        this.log('✅ [CONFIRMED] Stage 1 ("जमाबंदी की प्रतिलिपि") active and "वर्तमान नकल" options rendered!');
+        this.log('✅ [CONFIRMED] Stage 1 ("जमाबंदी की प्रतिलिपि") active and options rendered!');
         await this.takeStepScreenshot('6_jamabandi_selected');
         return true;
       }
@@ -622,9 +630,13 @@ export class ApnaKhataExtractor {
 
       // 1. Try Puppeteer Native Click on Label or Input
       try {
-        const labelEl = await this.page.$('label[for*="Khate_se"], #ctl00_ContentPlaceHolder1_Khate_se');
-        if (labelEl) {
-          await labelEl.click().catch(() => {});
+        const elements = await this.page.$$('label, td, span, input[type="radio"]');
+        for (const el of elements) {
+          const txt = await this.page.evaluate((e) => (e.innerText || e.value || '').trim(), el);
+          if (txt.includes('जमाबंदी की प्रतिलिपि')) {
+            await el.click().catch(() => {});
+            break;
+          }
         }
       } catch (e) {
         this.log(`   Label click note: ${e.message}`);
@@ -634,12 +646,10 @@ export class ApnaKhataExtractor {
       await this.safeEvaluate(() => {
         const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
         const jamabandiRadio =
-          radios.find(
-            (r) =>
-              r.id.includes('Khate_se') ||
-              r.value === 'Khate_se' ||
-              (r.parentElement && r.parentElement.innerText.includes('जमाबंदी की प्रतिलिपि'))
-          ) || radios[0];
+          radios.find((r) => {
+            const p = (r.parentElement ? r.parentElement.innerText : '').trim();
+            return r.id.includes('Khate_se') || p.includes('जमाबंदी की प्रतिलिपि');
+          }) || radios[0];
 
         if (jamabandiRadio) {
           jamabandiRadio.checked = true;
@@ -656,11 +666,11 @@ export class ApnaKhataExtractor {
       });
 
       await Promise.race([
-        this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 6000 }).catch(() => {}),
-        this.waitForAsyncPostback(2500),
-        delay(3000),
+        this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 5000 }).catch(() => {}),
+        this.waitForAsyncPostback(2000),
+        delay(2500),
       ]);
-      await delay(1000);
+      await delay(800);
       await this.dismissModals();
     }
 
@@ -675,20 +685,17 @@ export class ApnaKhataExtractor {
     await this.dismissModals();
 
     for (let attempt = 1; attempt <= 4; attempt++) {
-      // Check if Stage 2 is already fulfilled (i.e. 'खाता से' or 'खसरा से' search mode radios exist)
+      // Check if Stage 2 is already fulfilled (Search options 'खाता से' are visible directly as in Chosala mode)
       const isConfirmed = await this.safeEvaluate(() => {
         const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
-        return radios.some(
-          (r) =>
-            (r.id.toLowerCase().includes('khata') ||
-              r.value.toLowerCase().includes('khata') ||
-              (r.parentElement && r.parentElement.innerText.includes('खाता से'))) &&
-            r.id !== 'ctl00_ContentPlaceHolder1_Khate_se'
-        );
+        return radios.some((r) => {
+          const p = (r.parentElement ? r.parentElement.innerText : '').trim();
+          return p.includes('खाता से') || p.includes('खसरा से') || r.id.toLowerCase().includes('rdo_khata');
+        });
       });
 
       if (isConfirmed) {
-        this.log('✅ [CONFIRMED] Stage 2 ("वर्तमान नकल") active and Search Mode options rendered!');
+        this.log('✅ [CONFIRMED] Stage 2 Search Mode options active (खाता से / खसरा से)!');
         await this.takeStepScreenshot('7_vartman_selected');
         return true;
       }
@@ -697,9 +704,13 @@ export class ApnaKhataExtractor {
 
       // 1. Try Puppeteer Native Click on Label or Input
       try {
-        const labelEl = await this.page.$('label[for*="Vartman"], label[for*="vartman"], input[id*="Vartman"], input[id*="vartman"]');
-        if (labelEl) {
-          await labelEl.click().catch(() => {});
+        const elements = await this.page.$$('label, td, span, input[type="radio"]');
+        for (const el of elements) {
+          const txt = await this.page.evaluate((e) => (e.innerText || e.value || '').trim(), el);
+          if (txt.includes('वर्तमान नकल')) {
+            await el.click().catch(() => {});
+            break;
+          }
         }
       } catch (e) {
         this.log(`   Label click note: ${e.message}`);
@@ -708,12 +719,10 @@ export class ApnaKhataExtractor {
       // 2. Fallback via decoupled window.setTimeout postback
       await this.safeEvaluate(() => {
         const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
-        const vartmanRadio = radios.find(
-          (r) =>
-            r.id.toLowerCase().includes('vartman') ||
-            r.value.toLowerCase().includes('vartman') ||
-            (r.parentElement && r.parentElement.innerText.includes('वर्तमान नकल'))
-        );
+        const vartmanRadio = radios.find((r) => {
+          const p = (r.parentElement ? r.parentElement.innerText : '').trim();
+          return r.id.toLowerCase().includes('vartman') || p.includes('वर्तमान नकल');
+        });
 
         if (vartmanRadio) {
           vartmanRadio.checked = true;
@@ -730,11 +739,11 @@ export class ApnaKhataExtractor {
       });
 
       await Promise.race([
-        this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 6000 }).catch(() => {}),
-        this.waitForAsyncPostback(2500),
-        delay(3000),
+        this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 5000 }).catch(() => {}),
+        this.waitForAsyncPostback(2000),
+        delay(2500),
       ]);
-      await delay(1000);
+      await delay(800);
       await this.dismissModals();
     }
 
@@ -767,11 +776,16 @@ export class ApnaKhataExtractor {
 
       this.log(`   Attempt ${attempt}/4: Triggering selection for "खाता से"...`);
 
-      // 1. Try Puppeteer Native Click on Label or Input
+      // 1. Try Puppeteer Native Click on "खाता से" Label or Input
       try {
-        const labelEl = await this.page.$('label[for*="Khata"], label[for*="khata"], input[id*="Khata"], input[id*="khata"]');
-        if (labelEl) {
-          await labelEl.click().catch(() => {});
+        const elements = await this.page.$$('label, td, span, input[type="radio"]');
+        for (const el of elements) {
+          const txt = await this.page.evaluate((e) => (e.innerText || e.value || '').trim(), el);
+          if (txt === 'खाता से' || txt.includes('खाता से')) {
+            await el.click().catch(() => {});
+            this.log(`   Clicked "खाता से" element: "${txt}"`);
+            break;
+          }
         }
       } catch (e) {
         this.log(`   Label click note: ${e.message}`);
@@ -779,18 +793,41 @@ export class ApnaKhataExtractor {
 
       // 2. Fallback via decoupled window.setTimeout postback
       await this.safeEvaluate(() => {
+        const allLabels = Array.from(document.querySelectorAll('label, td, span'));
+        for (const lbl of allLabels) {
+          const txt = (lbl.innerText || '').trim();
+          if (txt === 'खाता से' || txt.includes('खाता से')) {
+            lbl.click();
+            const forId = lbl.getAttribute('for');
+            if (forId) {
+              const r = document.getElementById(forId);
+              if (r) {
+                r.checked = true;
+                r.setAttribute('checked', 'checked');
+                window.setTimeout(function () {
+                  if (typeof __doPostBack === 'function') {
+                    __doPostBack(r.name || r.id.replace(/_/g, '$'), '');
+                  } else if (r.form) {
+                    r.form.submit();
+                  }
+                }, 20);
+                return;
+              }
+            }
+          }
+        }
+
         const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
-        const khataRadio = radios.find(
-          (r) =>
-            (r.id.toLowerCase().includes('khata') ||
-              r.value.toLowerCase().includes('khata') ||
-              (r.parentElement && r.parentElement.innerText.includes('खाता से'))) &&
-            r.id !== 'ctl00_ContentPlaceHolder1_Khate_se'
-        );
+        const khataRadio =
+          radios.find((r) => {
+            const p = (r.parentElement ? r.parentElement.innerText : '').trim();
+            return (p.includes('खाता से') || r.id.toLowerCase().includes('khata')) && !r.id.includes('Khate_se');
+          }) || (radios.length > 0 ? radios[0] : null);
 
         if (khataRadio) {
           khataRadio.checked = true;
           khataRadio.setAttribute('checked', 'checked');
+          khataRadio.click();
           window.setTimeout(function () {
             if (typeof __doPostBack === 'function') {
               var target = khataRadio.name || khataRadio.id.replace(/_/g, '$');
@@ -803,9 +840,9 @@ export class ApnaKhataExtractor {
       });
 
       await Promise.race([
-        this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 6000 }).catch(() => {}),
-        this.waitForAsyncPostback(2500),
-        delay(3000),
+        this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 5000 }).catch(() => {}),
+        this.waitForAsyncPostback(2000),
+        delay(2500),
       ]);
       await delay(1000);
       await this.dismissModals();
