@@ -245,7 +245,8 @@ const stepLabels = {
     '6_jamabandi_selected': '6️⃣ जमाबंदी नकल',
     '7_vartman_selected': '7️⃣ वर्तमान नकल',
     '8_khata_radio_selected': '8️⃣ खाता से',
-    '5_table_rendered': '9️⃣ फाइनल टेबल',
+    '5_khata_placed': '🎯 खाता संख्या एवं टेबल',
+    '5_table_rendered': '📊 फाइनल स्क्रीनशॉट',
     'error_state': '⚠️ अंतिम स्थिति'
 };
 

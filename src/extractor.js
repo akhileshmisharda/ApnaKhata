@@ -198,6 +198,64 @@ export class ApnaKhataExtractor {
     await delay(100);
   }
 
+  /**
+   * Wait reactively for ASP.NET AJAX loading spinner / speed-meter overlay to completely disappear
+   */
+  async waitForLoadingToDisappear(timeout = 15000) {
+    this.log('⏳ Waiting for loading icon / spinner to disappear...');
+    try {
+      await this.page.waitForFunction(() => {
+        // 1. Check ASP.NET async postback status
+        if (typeof Sys !== 'undefined' && Sys.WebForms && Sys.WebForms.PageRequestManager) {
+          if (Sys.WebForms.PageRequestManager.getInstance().get_isInAsyncPostBack()) {
+            return false;
+          }
+        }
+
+        // 2. Check for any visible loading/spinner images or containers
+        const spinnerElements = Array.from(document.querySelectorAll('img, div, span')).filter((el) => {
+          const id = (el.id || '').toLowerCase();
+          const cls = (el.className || '').toLowerCase();
+          const src = (el.getAttribute('src') || '').toLowerCase();
+          const isSpinner =
+            id.includes('progress') ||
+            id.includes('loading') ||
+            id.includes('updateprogress') ||
+            cls.includes('progress') ||
+            cls.includes('loading') ||
+            cls.includes('spinner') ||
+            src.includes('load') ||
+            src.includes('spin') ||
+            src.includes('prog');
+
+          if (!isSpinner) return false;
+
+          const style = window.getComputedStyle(el);
+          const rect = el.getBoundingClientRect();
+          return (
+            style.display !== 'none' &&
+            style.visibility !== 'hidden' &&
+            style.opacity !== '0' &&
+            rect.width > 0 &&
+            rect.height > 0
+          );
+        });
+
+        return spinnerElements.length === 0;
+      }, { polling: 50, timeout }).catch(() => {});
+
+      // Extra guarantee: forcibly hide any remaining loading overlays
+      await this.safeEvaluate(() => {
+        const loaders = document.querySelectorAll('[id*="UpdateProgress"], [id*="Progress"], [class*="progress"], [class*="loading"], img[src*="load"], img[src*="prog"]');
+        loaders.forEach((el) => {
+          try { el.style.display = 'none'; } catch {}
+        });
+      });
+    } catch (e) {}
+
+    await delay(200);
+  }
+
   async takeStepScreenshot(stepKey) {
     if (!this.stepScreenshots) this.stepScreenshots = {};
     try {
@@ -700,10 +758,7 @@ export class ApnaKhataExtractor {
   }
 
   /**
-   * Stage 4: Select Khata Number in dropdown
-   */
-  /**
-   * Stage 4: Place Khata Number in dropdown / textbox, wait 2 seconds, and capture screenshot
+   * Stage 4: Place Khata Number in dropdown / textbox, wait for loading spinner to disappear, and capture clean screenshot
    */
   async stage4_SelectKhataNumber(searchValue) {
     this.log(`🎯 [Stage 4] Placing Khata No. "${searchValue}"...`);
@@ -760,8 +815,10 @@ export class ApnaKhataExtractor {
     }, searchValue);
 
     this.log(`   Khata placement status: ${JSON.stringify(placed)}`);
-    this.log('⏳ Waiting 2 seconds for live page update...');
-    await delay(2000);
+    
+    // Wait for AJAX postback & loading spinner to completely disappear
+    await this.waitForLoadingToDisappear(12000);
+    await this.dismissModals();
     await this.takeStepScreenshot('5_khata_placed');
   }
 
@@ -1038,7 +1095,10 @@ export class ApnaKhataExtractor {
 
       await this.selectJamabandiAndKhata();
 
-      // Capture final screenshot right after placing Khata number
+      // Ensure loading spinner is completely gone before final screenshot
+      await this.waitForLoadingToDisappear(5000);
+      await this.dismissModals();
+
       const screenshotBuffer = await this.page.screenshot({
         type: 'jpeg',
         quality: 90,
@@ -1050,7 +1110,7 @@ export class ApnaKhataExtractor {
       this.stepScreenshots['5_khata_placed'] = screenshotBase64;
 
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
-      this.log(`📸 Khata placed & Screenshot captured in ${elapsed}s! Process stopped as requested.`);
+      this.log(`📸 Khata placed, Loading icon gone & Clean Screenshot captured in ${elapsed}s! Process stopped.`);
 
       const data = {
         extractedAt: new Date().toISOString(),
