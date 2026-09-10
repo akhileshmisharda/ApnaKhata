@@ -380,6 +380,11 @@ document.getElementById('extractForm').addEventListener('submit', async function
         const data = await response.json();
         clearInterval(timerInterval);
 
+        // Display detailed server-side step logs if returned
+        if (data.data && data.data.logs && Array.isArray(data.data.logs)) {
+            data.data.logs.forEach(msg => logStatus(`[Server] ${msg}`));
+        }
+
         if (data.status === 'success' && data.data) {
             updateStep(6);
             logStatus(`✅ SUCCESS! Jamabandi record and screenshots extracted in ${secondsElapsed}s.`);

@@ -101,6 +101,7 @@ async function handleJamabandiExtraction(req, res) {
           khasraRecords: result.data.khasraRecords || [],
           screenshotBase64: result.data.screenshotBase64 || null,
           stepScreenshots: result.data.stepScreenshots || {},
+          logs: result.data.logs || [],
           extractedAt: result.data.extractedAt || new Date().toISOString(),
         },
       });
@@ -112,6 +113,7 @@ async function handleJamabandiExtraction(req, res) {
         data: result.data || {
           screenshotBase64: null,
           stepScreenshots: {},
+          logs: [],
         },
       });
     }
@@ -124,6 +126,7 @@ async function handleJamabandiExtraction(req, res) {
       data: {
         screenshotBase64: null,
         stepScreenshots: {},
+        logs: [],
       },
     });
   }
