@@ -30,7 +30,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SERVER['HTTP_X_REQUESTED_WI
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
     curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json; charset=utf-8']);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 180);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 240);
 
     $response = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -49,7 +49,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SERVER['HTTP_X_REQUESTED_WI
 
     if ($httpCode !== 200) {
         $json = json_decode($response, true);
-        echo json_encode(['status' => 'error', 'message' => $json['message'] ?? 'Server Error (HTTP ' . $httpCode . ')']);
+        echo json_encode([
+            'status' => 'error',
+            'message' => $json['message'] ?? 'Server Error (HTTP ' . $httpCode . ')',
+            'data' => $json['data'] ?? null
+        ], JSON_UNESCAPED_UNICODE);
         exit;
     }
 
@@ -103,7 +107,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SERVER['HTTP_X_REQUESTED_WI
                 </div>
                 <div class="col-md-2">
                     <label class="form-label fw-bold">खाता संख्या</label>
-                    <input type="text" id="searchValue" name="searchValue" class="form-control" value="560" required>
+                    <input type="text" id="searchValue" name="searchValue" class="form-control" value="525" required>
                 </div>
             </div>
             <div class="mt-4 text-center">
@@ -114,7 +118,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SERVER['HTTP_X_REQUESTED_WI
         </form>
     </div>
 
-    <!-- Live Progress & Activity Tracker (Visible while extracting) -->
+    <!-- Live Progress & Activity Tracker -->
     <div id="progressCard" class="card card-custom p-4 bg-white mb-4 d-none">
         <div class="d-flex justify-content-between align-items-center mb-3">
             <h5 class="fw-bold text-primary mb-0">
@@ -136,7 +140,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SERVER['HTTP_X_REQUESTED_WI
                 <span class="step-icon me-2">📍</span> 3. जिला ➔ तहसील ➔ "चोसाला पद्धति जमाबंदी" ➔ गाँव का चयन हो रहा है...
             </div>
             <div id="step4" class="step-item">
-                <span class="step-icon me-2">🎯</span> 4. "वर्तमान नकल" ➔ "खाता से" चुनकर खाता सं. 560 लोड किया जा रहा है...
+                <span class="step-icon me-2">🎯</span> 4. "वर्तमान नकल" ➔ "खाता से" चुनकर खाता सं. लोड किया जा रहा है...
             </div>
             <div id="step5" class="step-item">
                 <span class="step-icon me-2">🌾</span> 5. काश्तकार, खसरा नंबर और रकबा रिकॉर्ड का विश्लेषण हो रहा है...
@@ -151,8 +155,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SERVER['HTTP_X_REQUESTED_WI
 
     <!-- Alert Box -->
     <div id="alertBox" class="alert alert-danger d-none shadow-sm" role="alert">
-        <h5 class="fw-bold">❌ Error</h5>
+        <h5 class="fw-bold">❌ Status Note</h5>
         <div id="alertMessage"></div>
+    </div>
+
+    <!-- Official Webpage Screenshot Preview Card with Multi-Step Dynamic Tabs -->
+    <div id="screenshotCard" class="card border p-3 rounded-3 bg-white shadow-sm mb-4 d-none">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <h5 class="text-primary fw-bold mb-0">
+                📸 चरण-दर-चरण स्क्रीनशॉट गैलरी (Step-by-Step Live Screenshots)
+            </h5>
+            <a id="downloadScreenshotBtn" href="#" download="apnakhata_screenshot.jpg" class="btn btn-sm btn-outline-primary">
+                💾 डाउनलोड स्क्रीनशॉट
+            </a>
+        </div>
+        <p class="text-muted small mb-2">जिस चरण तक प्रोसेस पहुंचा, उस चरण का लाइव स्क्रीनशॉट देखने के लिए बटन चुनें:</p>
+        
+        <!-- Dynamic Step Buttons Container -->
+        <div class="btn-group w-100 mb-3 flex-wrap gap-1" role="group" id="stepButtonsGroup"></div>
+
+        <div class="text-center p-2 bg-light rounded border">
+            <img id="webScreenshotImg" src="" alt="Apna Khata Step Screenshot" class="img-fluid rounded shadow-sm border" style="max-height: 550px; width: auto;">
+        </div>
     </div>
 
     <!-- Results Display -->
@@ -163,7 +187,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SERVER['HTTP_X_REQUESTED_WI
                     ✅ जमाबंदी प्रतिलिपि विवरण
                 </h4>
                 <div>
-                    खाता संख्या: <span id="resKhataBadge" class="badge badge-khata">560</span>
+                    खाता संख्या: <span id="resKhataBadge" class="badge badge-khata">525</span>
                 </div>
             </div>
 
@@ -172,7 +196,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SERVER['HTTP_X_REQUESTED_WI
                 <span class="fw-bold text-dark me-2">⚙️ चयनित विकल्प (Selected Options):</span>
                 <span class="badge bg-primary px-3 py-2">📄 नकल: जमाबंदी की प्रतिलिपि</span>
                 <span class="badge bg-info text-dark px-3 py-2">⏱️ प्रकार: वर्तमान नकल</span>
-                <span class="badge bg-success px-3 py-2">🎯 आधार: खाता से (<span id="optKhataBadge">560</span>)</span>
+                <span class="badge bg-success px-3 py-2">🎯 आधार: खाता से (<span id="optKhataBadge">525</span>)</span>
             </div>
 
             <!-- Metadata -->
@@ -182,21 +206,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SERVER['HTTP_X_REQUESTED_WI
                 <div class="col-md-4"><strong>गाँव:</strong> <span id="resVillage"></span></div>
             </div>
 
-            <!-- Owners Section -->
-            <div class="mb-4">
-                <h5 class="text-primary fw-bold">👥 काश्तकार / खातेदार की सूचना:</h5>
-                <ul class="list-group" id="ownersList"></ul>
+            <!-- Owners / Kashtkaar Details Card -->
+            <div class="card border-0 bg-light rounded-3 p-3 mb-4">
+                <h5 class="fw-bold text-dark mb-2">👥 काश्तकार / खातेदार विवरण (Owners)</h5>
+                <ul id="ownersList" class="list-group list-group-flush rounded-2 border"></ul>
             </div>
 
-            <!-- Khasra Table -->
+            <!-- Khasra & Land Area Details Table -->
             <div class="mb-4">
-                <h5 class="text-primary fw-bold">🌾 खसरा एवं रकबा विवरण:</h5>
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h5 class="fw-bold text-dark mb-0">🌾 खसरा एवं क्षेत्रफल विवरण</h5>
+                    <span id="totalKhasraBadge" class="badge bg-secondary p-2">0 खसरे</span>
+                </div>
                 <div class="table-responsive">
-                    <table class="table table-bordered table-hover mt-2">
+                    <table class="table table-bordered table-hover align-middle mb-0 bg-white">
                         <thead class="table-dark">
                             <tr>
-                                <th style="width: 80px;">क्र. सं.</th>
-                                <th>खसरा संख्या (Khasra No)</th>
+                                <th>खाता संख्या</th>
+                                <th>खसरा नंबर</th>
                                 <th>रकबा / क्षेत्रफल (हेक्टेयर)</th>
                                 <th>सिंचाई साधन</th>
                                 <th>भूमि वर्गीकरण एवं लगान विवरण</th>
@@ -204,32 +231,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SERVER['HTTP_X_REQUESTED_WI
                         </thead>
                         <tbody id="khasraTableBody"></tbody>
                     </table>
-                </div>
-            </div>
-
-            <!-- Official Webpage Screenshot Preview Card with Multi-Step Tabs -->
-            <div id="screenshotCard" class="card border p-3 rounded-3 bg-light d-none">
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                    <h5 class="text-secondary fw-bold mb-0">
-                        📸 चरण-दर-चरण स्क्रीनशॉट गैलरी (Step-by-Step Live Screenshots)
-                    </h5>
-                    <a id="downloadScreenshotBtn" href="#" download="apnakhata_step_screenshot.jpg" class="btn btn-sm btn-outline-primary">
-                        💾 डाउनलोड स्क्रीनशॉट
-                    </a>
-                </div>
-                <p class="text-muted small mb-2">प्रत्येक चरण पर वेबपेज की वास्तविक स्थिति देखने के लिए नीचे दिए गए बटन पर क्लिक करें:</p>
-                
-                <!-- Step Buttons -->
-                <div class="btn-group w-100 mb-3 flex-wrap" role="group" id="stepButtonsGroup">
-                    <button type="button" class="btn btn-outline-secondary active btn-sm" onclick="showStepImg('1_page_opened', this)">1️⃣ पेज खुला</button>
-                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="showStepImg('2_jamabandi_selected', this)">2️⃣ जमाबंदी नकल</button>
-                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="showStepImg('3_vartman_selected', this)">3️⃣ वर्तमान नकल</button>
-                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="showStepImg('4_khata_selected', this)">4️⃣ खाता से</button>
-                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="showStepImg('5_table_rendered', this)">5️⃣ फाइनल टेबल</button>
-                </div>
-
-                <div class="text-center p-2 bg-white rounded border">
-                    <img id="webScreenshotImg" src="" alt="Apna Khata Step Screenshot" class="img-fluid rounded shadow-sm border" style="max-height: 550px; width: auto;">
                 </div>
             </div>
 
@@ -242,6 +243,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SERVER['HTTP_X_REQUESTED_WI
 let timerInterval = null;
 let secondsElapsed = 0;
 let currentStepScreenshots = {};
+
+const stepLabels = {
+    '1_district_selected': '1️⃣ जिला चयनित',
+    '2_tehsil_selected': '2️⃣ तहसील चयनित',
+    '3_chosala_selected': '3️⃣ चोसाला चयनित',
+    '4_village_selected': '4️⃣ गाँव चयनित',
+    '5_options_page_opened': '5️⃣ नकल विकल्प',
+    '6_jamabandi_selected': '6️⃣ जमाबंदी नकल',
+    '7_vartman_selected': '7️⃣ वर्तमान नकल',
+    '8_khata_radio_selected': '8️⃣ खाता से',
+    '5_table_rendered': '9️⃣ फाइनल टेबल',
+    'error_state': '⚠️ अंतिम स्थिति'
+};
+
+function renderScreenshotTabs(screenshots) {
+    currentStepScreenshots = screenshots || {};
+    const btnGroup = document.getElementById('stepButtonsGroup');
+    btnGroup.innerHTML = '';
+
+    const keys = Object.keys(currentStepScreenshots);
+    if (keys.length === 0) return;
+
+    keys.forEach((k, idx) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = (idx === keys.length - 1) ? 'btn btn-primary btn-sm' : 'btn btn-outline-secondary btn-sm';
+        btn.textContent = stepLabels[k] || k;
+        btn.onclick = function() { showStepImg(k, this); };
+        btnGroup.appendChild(btn);
+    });
+
+    document.getElementById('screenshotCard').classList.remove('d-none');
+    const lastKey = keys[keys.length - 1];
+    showStepImg(lastKey, btnGroup.lastElementChild);
+}
 
 function showStepImg(stepKey, btnEl) {
     if (btnEl) {
@@ -372,14 +408,8 @@ function renderScreenshotsOnly(result) {
     if (result.screenshotBase64 && !currentStepScreenshots['error_state']) {
         currentStepScreenshots['error_state'] = result.screenshotBase64;
     }
-    const screenshotCard = document.getElementById('screenshotCard');
-    screenshotCard.classList.remove('d-none');
-    
-    // Auto-select latest available screenshot
-    const keys = Object.keys(currentStepScreenshots);
-    if (keys.length > 0) {
-        const lastKey = keys[keys.length - 1];
-        showStepImg(lastKey, null);
+    if (Object.keys(currentStepScreenshots).length > 0) {
+        renderScreenshotTabs(currentStepScreenshots);
     }
 }
 
@@ -437,11 +467,7 @@ function renderResults(result, searchVal) {
     }
 
     if (Object.keys(currentStepScreenshots).length > 0) {
-        screenshotCard.classList.remove('d-none');
-        // Show last available step by default
-        const keys = Object.keys(currentStepScreenshots);
-        const lastKey = keys[keys.length - 1];
-        showStepImg(lastKey, document.querySelector(`#stepButtonsGroup button:nth-child(${keys.length})`));
+        renderScreenshotTabs(currentStepScreenshots);
     } else {
         screenshotCard.classList.add('d-none');
     }

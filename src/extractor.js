@@ -158,10 +158,10 @@ export class ApnaKhataExtractor {
    */
   async selectDistrict(districtName) {
     console.log(`\n📍 3. Selecting and Confirming District: "${districtName}"...`);
-    await delay(1000);
+    await delay(800);
     await this.dismissModals();
 
-    for (let attempt = 1; attempt <= 5; attempt++) {
+    for (let attempt = 1; attempt <= 3; attempt++) {
       const selResult = await this.safeEvaluate((target) => {
         const selects = Array.from(document.querySelectorAll('select'));
         for (const select of selects) {
@@ -187,9 +187,9 @@ export class ApnaKhataExtractor {
         return { success: false };
       }, districtName);
 
-      console.log(`   Attempt ${attempt}/5 -> District select: ${JSON.stringify(selResult)}`);
-      await this.waitForAsyncPostback(2000);
-      await delay(1500);
+      console.log(`   Attempt ${attempt}/3 -> District select: ${JSON.stringify(selResult)}`);
+      await this.waitForAsyncPostback(1500);
+      await delay(1000);
 
       // Strict Confirmation: Check if Tehsil dropdown has appeared
       const isConfirmed = await this.safeEvaluate((target) => {
@@ -205,10 +205,9 @@ export class ApnaKhataExtractor {
       if (isConfirmed) {
         console.log(`   ✅ [CONFIRMED] District "${districtName}" selected and Tehsil dropdown populated!`);
         break;
-      } else {
-        console.log(`   ⏳ [Pending Confirmation] Tehsil list not loaded yet, retrying...`);
       }
     }
+    await this.takeStepScreenshot('1_district_selected');
   }
 
   /**
@@ -216,10 +215,10 @@ export class ApnaKhataExtractor {
    */
   async selectTehsil(tehsilName) {
     console.log(`\n🏛️ 4. Selecting and Confirming Tehsil: "${tehsilName}"...`);
-    await delay(1000);
+    await delay(800);
     await this.dismissModals();
 
-    for (let attempt = 1; attempt <= 5; attempt++) {
+    for (let attempt = 1; attempt <= 3; attempt++) {
       const selResult = await this.safeEvaluate((target) => {
         const selects = Array.from(document.querySelectorAll('select'));
         const tehsilSelect =
@@ -250,13 +249,13 @@ export class ApnaKhataExtractor {
         return { success: false };
       }, tehsilName);
 
-      console.log(`   Attempt ${attempt}/5 -> Tehsil select: ${JSON.stringify(selResult)}`);
-      await this.waitForAsyncPostback(2000);
-      await delay(1500);
+      console.log(`   Attempt ${attempt}/3 -> Tehsil select: ${JSON.stringify(selResult)}`);
+      await this.waitForAsyncPostback(1500);
+      await delay(1000);
 
       // Strict Confirmation: Check if Chosala Radio or Village list has appeared
       const isConfirmed = await this.safeEvaluate(() => {
-        const bodyText = document.body.innerText;
+        const bodyText = (document.body ? document.body.innerText : '') || '';
         const radios = document.querySelectorAll('input[type="radio"]');
         const villageLinks = document.querySelectorAll('table a, tr a, td a');
         return radios.length > 0 || villageLinks.length > 5 || bodyText.includes('चोसाला') || bodyText.includes('गाँव');
@@ -265,10 +264,9 @@ export class ApnaKhataExtractor {
       if (isConfirmed) {
         console.log(`   ✅ [CONFIRMED] Tehsil "${tehsilName}" selected and village/Chosala section loaded!`);
         break;
-      } else {
-        console.log(`   ⏳ [Pending Confirmation] Village/Chosala section not visible yet, retrying...`);
       }
     }
+    await this.takeStepScreenshot('2_tehsil_selected');
   }
 
   /**
@@ -279,7 +277,7 @@ export class ApnaKhataExtractor {
     await delay(800);
     await this.dismissModals();
 
-    for (let attempt = 1; attempt <= 4; attempt++) {
+    for (let attempt = 1; attempt <= 3; attempt++) {
       const chosen = await this.safeEvaluate(() => {
         const allRadios = Array.from(document.querySelectorAll('input[type="radio"]'));
         for (const r of allRadios) {
@@ -309,9 +307,9 @@ export class ApnaKhataExtractor {
         return { clicked: false };
       });
 
-      console.log(`   Attempt ${attempt}/4 -> Chosala radio: ${JSON.stringify(chosen)}`);
-      await this.waitForAsyncPostback(2000);
-      await delay(1200);
+      console.log(`   Attempt ${attempt}/3 -> Chosala radio: ${JSON.stringify(chosen)}`);
+      await this.waitForAsyncPostback(1500);
+      await delay(1000);
 
       // Strict Confirmation: Check if Chosala is checked
       const isConfirmed = await this.safeEvaluate(() => {
@@ -332,6 +330,7 @@ export class ApnaKhataExtractor {
         break;
       }
     }
+    await this.takeStepScreenshot('3_chosala_selected');
   }
 
   /**
@@ -421,6 +420,7 @@ export class ApnaKhataExtractor {
       delay(2500),
     ]);
     await delay(1000);
+    await this.takeStepScreenshot('4_village_selected');
   }
 
   async safeEvaluate(fn, ...args) {
@@ -529,10 +529,10 @@ export class ApnaKhataExtractor {
     // Wait explicitly for the page radios to load
     await this.page.waitForSelector('input[type="radio"], label, table', { timeout: 15000 }).catch(() => {});
     await delay(1000);
-    await this.takeStepScreenshot('1_page_opened');
+    await this.takeStepScreenshot('5_options_page_opened');
 
     // Helper to click and confirm radio status before moving forward
-    const clickAndConfirmRadio = async (keywords, verifyNextKeyword, stepName, maxRetries = 5) => {
+    const clickAndConfirmRadio = async (keywords, verifyNextKeyword, stepName, maxRetries = 3) => {
       console.log(`\n👉 [Stage] Clicking and Confirming: ${stepName}...`);
       await this.dismissModals();
 
@@ -584,7 +584,7 @@ export class ApnaKhataExtractor {
         }, keywords);
 
         console.log(`   Attempt ${attempt}/${maxRetries} -> Click: ${JSON.stringify(clickResult)}`);
-        await this.waitForAsyncPostback(1500);
+        await this.waitForAsyncPostback(1200);
         await delay(800);
         await this.dismissModals();
 
@@ -604,7 +604,8 @@ export class ApnaKhataExtractor {
             }
           }
 
-          const hasNextElement = vKw ? document.body.innerText.includes(vKw) : true;
+          const bodyText = (document.body ? document.body.innerText : '') || '';
+          const hasNextElement = vKw ? bodyText.includes(vKw) : true;
           return { isChecked, hasNextElement, confirmed: isChecked || hasNextElement };
         }, keywords, verifyNextKeyword);
 
@@ -613,24 +614,23 @@ export class ApnaKhataExtractor {
           return true;
         } else {
           console.log(`   ⏳ [Pending Confirmation] ${stepName} not confirmed yet, retrying...`);
-          await delay(1000);
+          await delay(800);
         }
       }
-      console.warn(`   ⚠️ Warning: Could not explicitly confirm ${stepName} after ${maxRetries} attempts.`);
       return false;
     };
 
     // 1. Confirm & Select "जमाबंदी की प्रतिलिपि"
     await clickAndConfirmRadio(['जमाबंदी की प्रतिलिपि', 'जमाबंदी'], 'वर्तमान नकल', 'Radio 1: "जमाबंदी की प्रतिलिपि"');
-    await this.takeStepScreenshot('2_jamabandi_selected');
+    await this.takeStepScreenshot('6_jamabandi_selected');
 
     // 2. Confirm & Select "वर्तमान नकल"
     await clickAndConfirmRadio(['वर्तमान नकल', 'वर्तमान'], 'खाता से', 'Radio 2: "वर्तमान नकल"');
-    await this.takeStepScreenshot('3_vartman_selected');
+    await this.takeStepScreenshot('7_vartman_selected');
 
     // 3. Confirm & Select "खाता से"
     await clickAndConfirmRadio(['खाता से', 'खाता'], 'खाता संख्या', 'Radio 3: "खाता से"');
-    await this.takeStepScreenshot('4_khata_selected');
+    await this.takeStepScreenshot('8_khata_radio_selected');
 
     console.log(`\n🎯 7. Selecting and Confirming Khata No. "${searchValue}"...`);
     await delay(800);
