@@ -409,7 +409,16 @@ export class ApnaKhataExtractor {
         for (const opt of select.options) {
           const text = opt.text.trim();
           const val = opt.value.trim();
-          if (text === targetKhata || val === targetKhata || text.startsWith(targetKhata + ' ') || text.startsWith(targetKhata + '-')) {
+          const cleanText = text.replace(/[^\d]/g, '');
+          const cleanVal = val.replace(/[^\d]/g, '');
+          if (
+            cleanText === targetKhata ||
+            cleanVal === targetKhata ||
+            text === targetKhata ||
+            val === targetKhata ||
+            text.startsWith(targetKhata + ' ') ||
+            text.startsWith(targetKhata + '-')
+          ) {
             select.value = opt.value;
             if (select.getAttribute('onchange')) {
               try { eval(select.getAttribute('onchange')); } catch {}
@@ -425,7 +434,8 @@ export class ApnaKhataExtractor {
       const elements = Array.from(document.querySelectorAll('table a, .modal a, .popup a, td a, tr td a, td, a'));
       for (const el of elements) {
         const text = (el.innerText || '').trim();
-        if (text === targetKhata) {
+        const cleanElText = text.replace(/[^\d]/g, '');
+        if (text === targetKhata || cleanElText === targetKhata) {
           el.click();
           return { type: 'link_click', text };
         }
@@ -459,18 +469,23 @@ export class ApnaKhataExtractor {
    * Step 6: Extract structured Jamabandi Record directly from this table
    */
   async extractJamabandiData() {
-    const searchValue = String(this.config.searchValue || '560').trim();
+    const searchValue = String(this.config.searchValue || '560').replace(/[^\d]/g, '').trim() || '560';
     console.log(`\n📊 8. Extracting complete Jamabandi record from page for Khata "${searchValue}"...`);
     await delay(2000);
 
     const extractedData = await this.page.evaluate((targetKhata) => {
+      const cleanField = (str) => {
+        if (!str) return '';
+        return str.replace(/^[:\-\s]+/, '').replace(/[:\-\s\)]+$/, '').trim();
+      };
+
       const result = {
         extractedAt: new Date().toISOString(),
         url: window.location.href,
         district: 'भीलवाड़ा',
         tehsil: 'बनेड़ा',
         village: 'रायला - रायला - रायला',
-        khataNumber: targetKhata || '560',
+        khataNumber: cleanField(targetKhata) || '560',
         owners: [],
         khasraRecords: [],
         allTables: [],
@@ -480,14 +495,14 @@ export class ApnaKhataExtractor {
       const bodyText = document.body.innerText;
 
       // 1. Extract header metadata
-      const distMatch = bodyText.match(/जिला\s*[:-]\s*([^\t\n]+)/);
-      if (distMatch) result.district = distMatch[1].trim();
+      const distMatch = bodyText.match(/जिला\s*[:-]+\s*([^\t\n\r]+)/);
+      if (distMatch) result.district = cleanField(distMatch[1]);
 
-      const tehMatch = bodyText.match(/तहसील\s*[:-]\s*([^\t\n]+)/);
-      if (tehMatch) result.tehsil = tehMatch[1].trim();
+      const tehMatch = bodyText.match(/तहसील\s*[:-]+\s*([^\t\n\r]+)/);
+      if (tehMatch) result.tehsil = cleanField(tehMatch[1]);
 
-      const villMatch = bodyText.match(/गाँव\s*[:-]\s*([^\t\n]+)/);
-      if (villMatch) result.village = villMatch[1].trim();
+      const villMatch = bodyText.match(/गाँव\s*[:-]+\s*([^\t\n\r]+)/);
+      if (villMatch) result.village = cleanField(villMatch[1]);
 
       // 2. Extract Owners / Kashtkaar
       const lines = bodyText.split('\n').map((l) => l.trim()).filter(Boolean);
@@ -517,7 +532,7 @@ export class ApnaKhataExtractor {
         nakalType: 'जमाबंदी की प्रतिलिपि',
         nakalPeriod: 'वर्तमान नकल',
         searchMode: 'खाता से',
-        khataNumber: targetKhata || '560',
+        khataNumber: result.khataNumber,
       };
 
       // 3. Extract tables & identify Khasra rows without duplication

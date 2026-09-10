@@ -36,10 +36,11 @@ app.get('/', (req, res) => {
  * Common handler function for Jamabandi extraction
  */
 async function handleJamabandiExtraction(req, res) {
-  const district = req.query.district || req.body.district || 'भीलवाड़ा';
-  const tehsil = req.query.tehsil || req.body.tehsil || 'बनेड़ा';
-  const village = req.query.village || req.body.village || 'रायला - रायला - रायला';
-  const khata = String(req.query.khata || req.body.khata || req.query.searchValue || req.body.searchValue || '560').trim();
+  const district = (req.query.district || req.body.district || 'भीलवाड़ा').trim();
+  const tehsil = (req.query.tehsil || req.body.tehsil || 'बनेड़ा').trim();
+  const village = (req.query.village || req.body.village || 'रायला - रायला - रायला').trim();
+  const rawKhata = req.query.khata || req.body.khata || req.query.searchValue || req.body.searchValue || '560';
+  const khata = String(rawKhata).replace(/[^\d]/g, '').trim() || '560';
 
   console.log(`\n📥 [API Request] District: "${district}", Tehsil: "${tehsil}", Village: "${village}", Khata: "${khata}"`);
 
