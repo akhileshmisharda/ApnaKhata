@@ -86,7 +86,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SERVER['HTTP_X_REQUESTED_WI
     <!-- Header -->
     <div class="header-card p-4 mb-4 text-center shadow-sm">
         <h2 class="fw-bold mb-1">🏛️ राजस्थान अपना खाता - लाइव जमाबंदी नकल</h2>
-        <p class="mb-0 text-light opacity-75">Cloud Microservice Live Extractor • fabkraft.in</p>
+        <p class="mb-2 text-light opacity-75">Cloud Microservice Live Extractor • fabkraft.in</p>
+        <div class="d-inline-flex align-items-center gap-2 px-3 py-1 bg-white bg-opacity-25 rounded-pill text-white small" id="backendStatusPill">
+            <span class="spinner-grow spinner-grow-sm text-warning" role="status" id="backendDot"></span>
+            <span id="backendVersionText">Backend: Connecting to Render (https://apnakhata-juof.onrender.com/)...</span>
+        </div>
     </div>
 
     <!-- Input Form -->
@@ -482,6 +486,27 @@ function escapeHtml(text) {
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
 }
+
+// Auto-check live backend version on load
+(async function checkBackendStatus() {
+    const textEl = document.getElementById('backendVersionText');
+    const dotEl = document.getElementById('backendDot');
+    try {
+        const resp = await fetch('https://apnakhata-juof.onrender.com/', { cache: 'no-cache' });
+        const data = await resp.json();
+        if (data && data.status === 'online') {
+            const ver = data.version || 'v1.0';
+            const warm = data.browserWarm ? '⚡ Chrome Warm' : '⏳ Cold';
+            textEl.innerHTML = `🟢 <strong>Live Backend:</strong> ${ver} &bull; ${warm}`;
+            dotEl.className = 'spinner-grow spinner-grow-sm text-success';
+        } else {
+            textEl.textContent = '🟡 Backend is starting up...';
+        }
+    } catch (e) {
+        textEl.textContent = '🔴 Backend offline or waking up from sleep';
+        dotEl.className = 'spinner-grow spinner-grow-sm text-danger';
+    }
+})();
 </script>
 </body>
 </html>
