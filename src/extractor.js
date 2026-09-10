@@ -315,8 +315,8 @@ export class ApnaKhataExtractor {
    */
   async selectJamabandiAndKhata() {
     const { searchValue } = this.config;
-    console.log(`\n📌 6. Configuring Jamabandi Options...`);
-    await delay(2000);
+    console.log(`\n📌 6. Configuring Jamabandi Options for Khata ${searchValue}...`);
+    await delay(1500);
 
     const clickRadioByText = async (targetKeywords, stepName) => {
       console.log(`👉 Selecting ${stepName}...`);
@@ -333,13 +333,14 @@ export class ApnaKhataExtractor {
           if (keywords.some((kw) => fullText.includes(kw))) {
             r.click();
             r.checked = true;
+            if (typeof r.onclick === 'function') r.onclick();
             r.dispatchEvent(new Event('click', { bubbles: true }));
             r.dispatchEvent(new Event('change', { bubbles: true }));
             return { success: true, text: pText || lText || fullText };
           }
         }
 
-        const labels = Array.from(document.querySelectorAll('label, td, span'));
+        const labels = Array.from(document.querySelectorAll('label, td, span, a'));
         for (const l of labels) {
           const text = (l.innerText || '').trim();
           if (keywords.some((kw) => text === kw || text.includes(kw))) {
@@ -347,6 +348,7 @@ export class ApnaKhataExtractor {
             if (insideRadio) {
               insideRadio.click();
               insideRadio.checked = true;
+              if (typeof insideRadio.onclick === 'function') insideRadio.onclick();
               insideRadio.dispatchEvent(new Event('click', { bubbles: true }));
               insideRadio.dispatchEvent(new Event('change', { bubbles: true }));
             } else {
@@ -360,7 +362,7 @@ export class ApnaKhataExtractor {
       }, targetKeywords);
 
       console.log(`   ${stepName}: ${JSON.stringify(res)}`);
-      await delay(3000);
+      await delay(2500);
     };
 
     // 1. Select "जमाबंदी की प्रतिलिपि"
@@ -372,28 +374,26 @@ export class ApnaKhataExtractor {
     // 3. Select "खाता से"
     await clickRadioByText(['खाता से', 'खाता'], 'Radio "खाता से"');
 
-    // 4. If button exists to open Khata popup, click it
     console.log(`🎯 7. Opening Khata list / Selecting Khata No. "${searchValue}"...`);
-    try {
-      await this.page.evaluate(() => {
-        const buttons = Array.from(document.querySelectorAll('input[type="button"], input[type="submit"], button, a'));
-        for (const b of buttons) {
-          const text = (b.innerText || b.getAttribute('value') || '').trim();
-          if (text.includes('खाता') && (text.includes('चुनें') || text.includes('सूची') || text.includes('देखें'))) {
-            b.click();
-            break;
-          }
+    await delay(2000);
+
+    // Click "खाता चुनें" button if it exists
+    await this.page.evaluate(() => {
+      const buttons = Array.from(document.querySelectorAll('input[type="button"], input[type="submit"], button, a'));
+      for (const b of buttons) {
+        const text = (b.innerText || b.getAttribute('value') || '').trim();
+        if (text.includes('खाता') && (text.includes('चुनें') || text.includes('सूची') || text.includes('देखें') || text.includes('Select'))) {
+          b.click();
+          break;
         }
-      });
-    } catch {
-      // Ignore
-    }
+      }
+    }).catch(() => {});
 
-    await delay(3000);
+    await delay(2500);
 
-    // 5. Select Khata Number 560
+    // Select Khata 560
     const chosen = await this.page.evaluate((targetKhata) => {
-      // Select dropdown
+      // 1. Select Dropdowns
       const selects = Array.from(document.querySelectorAll('select'));
       for (const select of selects) {
         for (const opt of select.options) {
@@ -401,28 +401,29 @@ export class ApnaKhataExtractor {
           const val = opt.value.trim();
           if (text === targetKhata || val === targetKhata || text.startsWith(targetKhata + ' ') || text.startsWith(targetKhata + '-')) {
             select.value = opt.value;
+            if (typeof select.onchange === 'function') select.onchange();
             select.dispatchEvent(new Event('change', { bubbles: true }));
             return { type: 'dropdown_select', text };
           }
         }
       }
 
-      // Popup table rows / links
-      const elements = Array.from(document.querySelectorAll('table a, .modal a, .popup a, td a, tr td a, td'));
+      // 2. Links / Table cells / Popup items
+      const elements = Array.from(document.querySelectorAll('table a, .modal a, .popup a, td a, tr td a, td, a'));
       for (const el of elements) {
-        const text = el.innerText?.trim();
+        const text = (el.innerText || '').trim();
         if (text === targetKhata) {
           el.click();
-          return { type: 'popup_link', text };
+          return { type: 'link_click', text };
         }
       }
 
-      // Input boxes
+      // 3. Inputs
       const inputs = Array.from(document.querySelectorAll('input[type="text"], input[type="number"]'));
       for (const inp of inputs) {
         const id = (inp.id || '').toLowerCase();
         const name = (inp.name || '').toLowerCase();
-        if (id.includes('khata') || name.includes('khata') || id.includes('search') || name.includes('search') || id.includes('txt')) {
+        if (id.includes('khata') || name.includes('khata') || id.includes('search') || name.includes('txt')) {
           inp.value = targetKhata;
           inp.dispatchEvent(new Event('input', { bubbles: true }));
           inp.dispatchEvent(new Event('change', { bubbles: true }));
@@ -433,12 +434,17 @@ export class ApnaKhataExtractor {
       return null;
     }, searchValue);
 
-    if (chosen) {
-      console.log(`✅ Khata "${searchValue}" selected: ${JSON.stringify(chosen)}`);
-    }
+    console.log(`✅ Khata selection result: ${JSON.stringify(chosen)}`);
 
-    console.log('⏳ Waiting for Jamabandi Record Table on screen...');
-    await delay(4000);
+    // Wait for Jamabandi table to render on page
+    console.log('⏳ Waiting for Jamabandi Record Table to render...');
+    await Promise.race([
+      this.page.waitForFunction(() => {
+        const text = document.body.innerText;
+        return text.includes('काश्तकार') || text.includes('खसरा') || text.includes('रकबा') || document.querySelectorAll('table tr').length > 6;
+      }, { timeout: 12000 }).catch(() => {}),
+      delay(6000),
+    ]);
   }
 
   /**
@@ -448,33 +454,34 @@ export class ApnaKhataExtractor {
     console.log('\n📊 8. Extracting complete Jamabandi record from page...');
     await delay(2000);
 
-    const extractedData = await this.page.evaluate(() => {
+    const extractedData = await this.page.evaluate((targetKhata) => {
       const result = {
         extractedAt: new Date().toISOString(),
         url: window.location.href,
         district: 'भीलवाड़ा',
         tehsil: 'बनेड़ा',
         village: 'रायला - रायला - रायला',
-        khataNumber: '560',
+        khataNumber: targetKhata || '560',
         owners: [],
         khasraRecords: [],
         allTables: [],
         rawText: document.body.innerText,
       };
 
+      const bodyText = document.body.innerText;
+
       // 1. Extract header metadata
-      const headerText = document.body.innerText;
-      const distMatch = headerText.match(/जिला\s*[:-]\s*([^\t\n]+)/);
+      const distMatch = bodyText.match(/जिला\s*[:-]\s*([^\t\n]+)/);
       if (distMatch) result.district = distMatch[1].trim();
 
-      const tehMatch = headerText.match(/तहसील\s*[:-]\s*([^\t\n]+)/);
+      const tehMatch = bodyText.match(/तहसील\s*[:-]\s*([^\t\n]+)/);
       if (tehMatch) result.tehsil = tehMatch[1].trim();
 
-      const villMatch = headerText.match(/गाँव\s*[:-]\s*([^\t\n]+)/);
+      const villMatch = bodyText.match(/गाँव\s*[:-]\s*([^\t\n]+)/);
       if (villMatch) result.village = villMatch[1].trim();
 
       // 2. Extract Owners / Kashtkaar
-      const lines = headerText.split('\n').map((l) => l.trim()).filter(Boolean);
+      const lines = bodyText.split('\n').map((l) => l.trim()).filter(Boolean);
       let inKashtkaarSection = false;
       for (const line of lines) {
         if (line.includes('काश्तकार की सूचना') || line.includes('काश्तकार') || line.includes('खातेदार')) {
@@ -482,11 +489,14 @@ export class ApnaKhataExtractor {
           continue;
         }
         if (inKashtkaarSection) {
+          if (line.includes('खसरा') || line.includes('रकबा') || line.includes('भूमि वर्गीकरण')) {
+            inKashtkaarSection = false;
+            break;
+          }
           if (line.includes('नाम') && !line.includes('पुत्र')) continue;
-          if (line.includes('पुत्र') || line.includes('बेवा') || line.includes('पत्नी') || line.includes('हिस्सा')) {
+          if (line.includes('पुत्र') || line.includes('बेवा') || line.includes('पत्नी') || line.includes('हिस्सा') || line.includes('कौम')) {
             result.owners.push(line);
-          } else if (result.owners.length > 0 && line.length < 50 && !line.includes('राजस्थान') && !line.includes('Version')) {
-            // Also add names without father if part of list
+          } else if (result.owners.length > 0 && line.length < 60 && !line.includes('राजस्थान') && !line.includes('Version')) {
             if (!line.includes(':') && !line.includes('खसरा')) {
               result.owners.push(line);
             }
@@ -494,14 +504,14 @@ export class ApnaKhataExtractor {
         }
       }
 
-      // 3. Extract all tables
+      // 3. Extract all tables & identify Khasra rows
       const tables = Array.from(document.querySelectorAll('table'));
       tables.forEach((table, tableIndex) => {
         const rows = Array.from(table.querySelectorAll('tr'));
         const tableData = [];
         let headers = [];
 
-        rows.forEach((row, rowIndex) => {
+        rows.forEach((row) => {
           const ths = Array.from(row.querySelectorAll('th'));
           const tds = Array.from(row.querySelectorAll('td'));
 
@@ -511,17 +521,46 @@ export class ApnaKhataExtractor {
             const rowVals = tds.map((td) => td.innerText.trim());
             tableData.push(rowVals);
 
-            // If this is the khasra row (e.g. Khata 560, Khasra 17, Rakba 2.2131...)
-            if (rowVals.length >= 3 && (rowVals[0] === '560' || !isNaN(parseFloat(rowVals[1])))) {
-              result.khasraRecords.push({
-                khataNo: rowVals[0] || '560',
-                khasraNo: rowVals[1] || '',
-                rakbaHectare: rowVals[2] || '',
-                irrigation: rowVals[3] || '',
-                farmName: rowVals[4] || '',
-                soilAndTax: rowVals[rowVals.length - 1] || '',
-                fullRow: rowVals,
-              });
+            // Check if this row is a khasra record row
+            const joinedRow = rowVals.join(' ');
+            const hasNumbers = rowVals.some(v => /^\d+(\.\d+)?$/.test(v));
+            
+            // Check for Khasra data pattern
+            if (rowVals.length >= 3 && hasNumbers && !joinedRow.includes('कुल') && !joinedRow.includes('योग') && !joinedRow.includes('खाता संख्या')) {
+              let khata = targetKhata;
+              let khasra = '';
+              let rakba = '';
+              let irrigation = '-';
+              let soilAndTax = '';
+
+              if (rowVals.length >= 6) {
+                khata = rowVals[1] || targetKhata;
+                khasra = rowVals[2] || '';
+                rakba = rowVals[3] || '';
+                irrigation = rowVals[4] || '-';
+                soilAndTax = rowVals[5] || '';
+              } else if (rowVals.length >= 4) {
+                khata = rowVals[0] || targetKhata;
+                khasra = rowVals[1] || '';
+                rakba = rowVals[2] || '';
+                soilAndTax = rowVals[3] || '';
+              } else if (rowVals.length === 3) {
+                khasra = rowVals[0] || '';
+                rakba = rowVals[1] || '';
+                soilAndTax = rowVals[2] || '';
+              }
+
+              if (khasra || rakba) {
+                result.khasraRecords.push({
+                  khataNo: khata,
+                  khasraNo: khasra,
+                  rakbaHectare: rakba,
+                  irrigation: irrigation,
+                  farmName: '',
+                  soilAndTax: soilAndTax,
+                  fullRow: rowVals,
+                });
+              }
             }
           }
         });
@@ -536,7 +575,7 @@ export class ApnaKhataExtractor {
       });
 
       return result;
-    });
+    }, searchValue);
 
     console.log('\n================ JAMABANDI RECORD EXTRACTED ================');
     console.log(`📍 Location : जिला: ${extractedData.district} | तहसील: ${extractedData.tehsil} | गाँव: ${extractedData.village}`);
