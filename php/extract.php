@@ -387,7 +387,7 @@ document.getElementById('extractForm').addEventListener('submit', async function
         }
 
         if (data.status === 'success' && data.data) {
-            updateStep(6);
+            updateStep(15);
             logStatus(`✅ SUCCESS! Jamabandi record and screenshots extracted in ${secondsElapsed}s.`);
             renderResults(data.data, searchValue);
         } else {
