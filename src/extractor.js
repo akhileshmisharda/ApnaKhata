@@ -316,11 +316,20 @@ export class ApnaKhataExtractor {
   async selectJamabandiAndKhata() {
     const { searchValue } = this.config;
     console.log(`\n📌 6. Configuring Jamabandi Options for Khata ${searchValue}...`);
-    await delay(1500);
+
+    const waitForAsyncPostback = async (ms = 3000) => {
+      await this.page.waitForFunction(() => {
+        if (typeof Sys !== 'undefined' && Sys.WebForms && Sys.WebForms.PageRequestManager) {
+          return !Sys.WebForms.PageRequestManager.getInstance().get_isInAsyncPostBack();
+        }
+        return true;
+      }, { timeout: 8000 }).catch(() => {});
+      await delay(ms);
+    };
 
     const clickRadioByText = async (targetKeywords, stepName) => {
       console.log(`👉 Selecting ${stepName}...`);
-      const res = await this.page.evaluate((keywords) => {
+      await this.page.evaluate((keywords) => {
         const allRadios = Array.from(document.querySelectorAll('input[type="radio"]'));
         for (const r of allRadios) {
           const parent = r.parentElement;
@@ -333,10 +342,12 @@ export class ApnaKhataExtractor {
           if (keywords.some((kw) => fullText.includes(kw))) {
             r.click();
             r.checked = true;
-            if (typeof r.onclick === 'function') r.onclick();
+            if (r.getAttribute('onclick')) {
+              try { eval(r.getAttribute('onclick')); } catch {}
+            }
             r.dispatchEvent(new Event('click', { bubbles: true }));
             r.dispatchEvent(new Event('change', { bubbles: true }));
-            return { success: true, text: pText || lText || fullText };
+            return;
           }
         }
 
@@ -348,21 +359,20 @@ export class ApnaKhataExtractor {
             if (insideRadio) {
               insideRadio.click();
               insideRadio.checked = true;
-              if (typeof insideRadio.onclick === 'function') insideRadio.onclick();
+              if (insideRadio.getAttribute('onclick')) {
+                try { eval(insideRadio.getAttribute('onclick')); } catch {}
+              }
               insideRadio.dispatchEvent(new Event('click', { bubbles: true }));
               insideRadio.dispatchEvent(new Event('change', { bubbles: true }));
             } else {
               l.click();
             }
-            return { success: true, text };
+            return;
           }
         }
-
-        return { success: false };
       }, targetKeywords);
 
-      console.log(`   ${stepName}: ${JSON.stringify(res)}`);
-      await delay(2500);
+      await waitForAsyncPostback(2000);
     };
 
     // 1. Select "जमाबंदी की प्रतिलिपि"
@@ -375,9 +385,9 @@ export class ApnaKhataExtractor {
     await clickRadioByText(['खाता से', 'खाता'], 'Radio "खाता से"');
 
     console.log(`🎯 7. Opening Khata list / Selecting Khata No. "${searchValue}"...`);
-    await delay(2000);
+    await delay(1500);
 
-    // Click "खाता चुनें" button if it exists
+    // If "खाता चुनें" button exists, click it
     await this.page.evaluate(() => {
       const buttons = Array.from(document.querySelectorAll('input[type="button"], input[type="submit"], button, a'));
       for (const b of buttons) {
@@ -389,11 +399,11 @@ export class ApnaKhataExtractor {
       }
     }).catch(() => {});
 
-    await delay(2500);
+    await waitForAsyncPostback(2000);
 
     // Select Khata 560
     const chosen = await this.page.evaluate((targetKhata) => {
-      // 1. Select Dropdowns
+      // 1. Check all <select> dropdowns
       const selects = Array.from(document.querySelectorAll('select'));
       for (const select of selects) {
         for (const opt of select.options) {
@@ -401,14 +411,17 @@ export class ApnaKhataExtractor {
           const val = opt.value.trim();
           if (text === targetKhata || val === targetKhata || text.startsWith(targetKhata + ' ') || text.startsWith(targetKhata + '-')) {
             select.value = opt.value;
+            if (select.getAttribute('onchange')) {
+              try { eval(select.getAttribute('onchange')); } catch {}
+            }
             if (typeof select.onchange === 'function') select.onchange();
             select.dispatchEvent(new Event('change', { bubbles: true }));
-            return { type: 'dropdown_select', text };
+            return { type: 'dropdown_select', text, id: select.id };
           }
         }
       }
 
-      // 2. Links / Table cells / Popup items
+      // 2. Check table links / popup items / modal list
       const elements = Array.from(document.querySelectorAll('table a, .modal a, .popup a, td a, tr td a, td, a'));
       for (const el of elements) {
         const text = (el.innerText || '').trim();
@@ -418,7 +431,7 @@ export class ApnaKhataExtractor {
         }
       }
 
-      // 3. Inputs
+      // 3. Check text inputs
       const inputs = Array.from(document.querySelectorAll('input[type="text"], input[type="number"]'));
       for (const inp of inputs) {
         const id = (inp.id || '').toLowerCase();
@@ -438,13 +451,8 @@ export class ApnaKhataExtractor {
 
     // Wait for Jamabandi table to render on page
     console.log('⏳ Waiting for Jamabandi Record Table to render...');
-    await Promise.race([
-      this.page.waitForFunction(() => {
-        const text = document.body.innerText;
-        return text.includes('काश्तकार') || text.includes('खसरा') || text.includes('रकबा') || document.querySelectorAll('table tr').length > 6;
-      }, { timeout: 12000 }).catch(() => {}),
-      delay(6000),
-    ]);
+    await waitForAsyncPostback(4000);
+    await delay(3000);
   }
 
   /**
