@@ -642,13 +642,25 @@ export class ApnaKhataExtractor {
               const l = document.querySelector(`label[for="${r.id}"]`);
               const lt = (l ? l.innerText : '').trim();
               const all = `${p} ${lt} ${r.value} ${r.id}`;
-              if (all.includes(kw) && typeof __doPostBack === 'function') {
-                __doPostBack(r.name || r.id, '');
+              if (all.includes(kw)) {
+                const onclickAttr = r.getAttribute('onclick');
+                if (onclickAttr) {
+                  try { eval(onclickAttr.replace('javascript:', '')); } catch {}
+                } else if (typeof __doPostBack === 'function') {
+                  const target = r.id ? r.id.replace(/_/g, '$') : r.name;
+                  __doPostBack(target, '');
+                }
                 return;
               }
             }
-            if (radios.length > 0 && typeof __doPostBack === 'function') {
-              __doPostBack(radios[0].name || radios[0].id, '');
+            if (radios.length > 0) {
+              const r0 = radios[0];
+              const onclickAttr = r0.getAttribute('onclick');
+              if (onclickAttr) {
+                try { eval(onclickAttr.replace('javascript:', '')); } catch {}
+              } else if (typeof __doPostBack === 'function') {
+                __doPostBack(r0.id ? r0.id.replace(/_/g, '$') : r0.name, '');
+              }
             }
           }, radioKeyword);
 
@@ -677,16 +689,25 @@ export class ApnaKhataExtractor {
     await this.takeStepScreenshot('5_options_page_opened');
 
     // 👉 Stage 1: Select "जमाबंदी की प्रतिलिपि"
-    await this.clickRadioAndConfirm('जमाबंदी', 'वर्तमान', 'Stage 1: जमाबंदी की प्रतिलिपि');
+    const s1 = await this.clickRadioAndConfirm('जमाबंदी', 'वर्तमान', 'Stage 1: जमाबंदी की प्रतिलिपि');
     await this.takeStepScreenshot('6_jamabandi_selected');
+    if (!s1) {
+      throw new Error('चरण "जमाबंदी की प्रतिलिपि" का चयन पुष्ट नहीं हो सका।');
+    }
 
     // 👉 Stage 2: Select "वर्तमान नकल"
-    await this.clickRadioAndConfirm('वर्तमान', 'खाता', 'Stage 2: वर्तमान नकल');
+    const s2 = await this.clickRadioAndConfirm('वर्तमान', 'खाता', 'Stage 2: वर्तमान नकल');
     await this.takeStepScreenshot('7_vartman_selected');
+    if (!s2) {
+      throw new Error('चरण "वर्तमान नकल" का चयन पुष्ट नहीं हो सका।');
+    }
 
     // 👉 Stage 3: Select "खाता से"
-    await this.clickRadioAndConfirm('खाता', 'select_dropdown', 'Stage 3: खाता से');
+    const s3 = await this.clickRadioAndConfirm('खाता', 'select_dropdown', 'Stage 3: खाता से');
     await this.takeStepScreenshot('8_khata_radio_selected');
+    if (!s3) {
+      throw new Error('चरण "खाता से" का चयन पुष्ट नहीं हो सका।');
+    }
 
     // 👉 Stage 4: Select Khata Number in dropdown
     this.log(`🎯 [Stage 4] Selecting Khata No. "${searchValue}" in dropdown...`);
@@ -819,10 +840,12 @@ export class ApnaKhataExtractor {
     const tableConfirmed = await this.safeEvaluate(() => {
       const text = (document.body ? document.body.innerText : '') || '';
       const rows = document.querySelectorAll('tr td');
+      const hasKhasraKeyword = text.includes('खसरा') || text.includes('काश्तकार') || text.includes('रकबा') || text.includes('खातेदार');
       return {
-        hasTable: rows.length > 0,
-        hasKhasraKeyword: text.includes('खसरा') || text.includes('काश्तकार') || text.includes('रकबा'),
+        hasTable: rows.length > 5,
+        hasKhasraKeyword,
         rowCount: rows.length,
+        confirmed: rows.length > 5 && hasKhasraKeyword,
       };
     });
 

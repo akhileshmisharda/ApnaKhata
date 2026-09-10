@@ -128,23 +128,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SERVER['HTTP_X_REQUESTED_WI
             <span id="timerBadge" class="badge bg-secondary p-2">⏱️ 0s बीत चुके</span>
         </div>
 
-        <!-- Stepper -->
-        <div class="mb-3">
-            <div id="step1" class="step-item active">
-                <span class="step-icon me-2">🌐</span> 1. राजस्थान अपना खाता पोर्टल से कनेक्शन स्थापित किया जा रहा है...
-            </div>
-            <div id="step2" class="step-item">
-                <span class="step-icon me-2">📜</span> 2. जमाबंदी नकल पोर्टल एवं पॉपअप नोटिस को बायपास किया जा रहा है...
-            </div>
-            <div id="step3" class="step-item">
-                <span class="step-icon me-2">📍</span> 3. जिला ➔ तहसील ➔ "चोसाला पद्धति जमाबंदी" ➔ गाँव का चयन हो रहा है...
-            </div>
-            <div id="step4" class="step-item">
-                <span class="step-icon me-2">🎯</span> 4. "वर्तमान नकल" ➔ "खाता से" चुनकर खाता सं. लोड किया जा रहा है...
-            </div>
-            <div id="step5" class="step-item">
-                <span class="step-icon me-2">🌾</span> 5. काश्तकार, खसरा नंबर और रकबा रिकॉर्ड का विश्लेषण हो रहा है...
-            </div>
+        <!-- Stepper (15 Detailed Milestone Stages) -->
+        <div class="mb-3" style="max-height: 280px; overflow-y: auto; padding-right: 4px;">
+            <div id="step1" class="step-item active"><span class="step-icon me-2">🌐</span> 1. राजस्थान अपना खाता पोर्टल कनेक्शन स्थापित (Homepage Loaded)</div>
+            <div id="step2" class="step-item"><span class="step-icon me-2">🧹</span> 2. पोर्टल नोटिस व पॉपअप बायपास (Popup Dismissed)</div>
+            <div id="step3" class="step-item"><span class="step-icon me-2">👉</span> 3. "जमाबंदी नकल" बटन चयन (Accessing Jamabandi Selection)</div>
+            <div id="step4" class="step-item"><span class="step-icon me-2">📍</span> 4. जिला चयन: भीलवाड़ा (District Selected & Tehsil Loaded)</div>
+            <div id="step5" class="step-item"><span class="step-icon me-2">🏛️</span> 5. तहसील चयन: बनेड़ा (Tehsil Selected & Village Options Loaded)</div>
+            <div id="step6" class="step-item"><span class="step-icon me-2">📑</span> 6. "चोसाला पद्धति जमाबंदी" रेडियो चयन (Chosala Padhti Active)</div>
+            <div id="step7" class="step-item"><span class="step-icon me-2">🌾</span> 7. गाँव चयन: रायला (Latest Settlement Record Clicked)</div>
+            <div id="step8" class="step-item"><span class="step-icon me-2">📌</span> 8. जमाबंदी विकल्प पृष्ठ लोड (Options Page Inspected)</div>
+            <div id="step9" class="step-item"><span class="step-icon me-2">👉</span> 9. "जमाबंदी की प्रतिलिपि" रेडियो चयन (Jamabandi Radio Clicked)</div>
+            <div id="step10" class="step-item"><span class="step-icon me-2">⏱️</span> 10. "वर्तमान नकल" रेडियो चयन (Vartman Nakal Selected)</div>
+            <div id="step11" class="step-item"><span class="step-icon me-2">🎯</span> 11. "खाता से" विकल्प चयन (Search by Khata Selected)</div>
+            <div id="step12" class="step-item"><span class="step-icon me-2">📖</span> 12. खाता संख्या चयन (Khata Dropdown Option Selected)</div>
+            <div id="step13" class="step-item"><span class="step-icon me-2">👉</span> 13. "नकल (सूचनार्थ)" बटन क्लिक (Nakal Suchnarth Clicked)</div>
+            <div id="step14" class="step-item"><span class="step-icon me-2">📑</span> 14. फाइनल जमाबंदी नकल रिकॉर्ड तालिका लोड (Jamabandi Table Rendered)</div>
+            <div id="step15" class="step-item"><span class="step-icon me-2">📊</span> 15. काश्तकार, खसरा नंबर और रकबा विश्लेषण एवं सत्यापन (Record Extracted)</div>
         </div>
 
         <!-- Terminal Console -->
@@ -307,12 +307,14 @@ function logStatus(msg) {
 }
 
 function updateStep(activeStepIndex) {
-    for (let i = 1; i <= 5; i++) {
+    for (let i = 1; i <= 15; i++) {
         const stepEl = document.getElementById(`step${i}`);
+        if (!stepEl) continue;
         if (i < activeStepIndex) {
             stepEl.className = 'step-item completed';
         } else if (i === activeStepIndex) {
             stepEl.className = 'step-item active';
+            stepEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
         } else {
             stepEl.className = 'step-item';
         }
@@ -345,21 +347,20 @@ document.getElementById('extractForm').addEventListener('submit', async function
         secondsElapsed++;
         document.getElementById('timerBadge').textContent = `⏱️ ${secondsElapsed}s बीत चुके`;
 
-        if (secondsElapsed === 3) {
-            updateStep(2);
-            logStatus("🌐 Connected to Rajasthan Apna Khata portal. Accessing Jamabandi selection...");
-        } else if (secondsElapsed === 8) {
-            updateStep(3);
-            logStatus(`📍 District '${district}' & Tehsil '${tehsil}' -> Chosala Padhti Jamabandi selected...`);
-        } else if (secondsElapsed === 16) {
-            updateStep(4);
-            logStatus(`🌾 Village '${village}' matched. Opening Jamabandi options & selecting Khata ${searchValue}...`);
-        } else if (secondsElapsed === 26) {
-            updateStep(5);
-            logStatus("👉 Clicking 'नकल (सूचनार्थ)' & confirming Jamabandi record table render...");
-        } else if (secondsElapsed > 35 && secondsElapsed % 6 === 0) {
-            logStatus("⏳ Parsing comprehensive land records, Khasra details, and step screenshots...");
-        }
+        if (secondsElapsed === 2) updateStep(2);
+        else if (secondsElapsed === 4) updateStep(3);
+        else if (secondsElapsed === 7) updateStep(4);
+        else if (secondsElapsed === 11) updateStep(5);
+        else if (secondsElapsed === 15) updateStep(6);
+        else if (secondsElapsed === 20) updateStep(7);
+        else if (secondsElapsed === 25) updateStep(8);
+        else if (secondsElapsed === 29) updateStep(9);
+        else if (secondsElapsed === 33) updateStep(10);
+        else if (secondsElapsed === 37) updateStep(11);
+        else if (secondsElapsed === 42) updateStep(12);
+        else if (secondsElapsed === 47) updateStep(13);
+        else if (secondsElapsed === 53) updateStep(14);
+        else if (secondsElapsed === 58) updateStep(15);
     }, 1000);
 
     try {
