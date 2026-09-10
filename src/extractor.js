@@ -527,174 +527,190 @@ export class ApnaKhataExtractor {
   }
 
   /**
-   * Robust multi-technique Radio selection and confirmation helper
+   * Stage 1: Select "जमाबंदी की प्रतिलिपि"
    */
-  async clickRadioAndConfirm(radioKeyword, nextKeyword, stageTitle) {
-    this.log(`👉 [${stageTitle}] Selecting "${radioKeyword}" (Expecting: "${nextKeyword}")...`);
+  async stage1_SelectJamabandiRadio() {
+    this.log('👉 [Stage 1: जमाबंदी की प्रतिलिपि] Selecting "जमाबंदी की प्रतिलिपि"...');
     await this.dismissModals();
 
     for (let attempt = 1; attempt <= 4; attempt++) {
-      // 1. Check if next section is already visible
-      const alreadyConfirmed = await this.safeEvaluate((nKw) => {
-        const text = (document.body ? document.body.innerText : '') || '';
-        const selects = document.querySelectorAll('select');
-        if (nKw === 'select_dropdown') return selects.length > 0;
-        return text.includes(nKw);
-      }, nextKeyword);
+      // Check if Stage 1 is already fulfilled (i.e. 'vartman' radio or 'वर्तमान नकल' text present in radio table)
+      const isConfirmed = await this.safeEvaluate(() => {
+        const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
+        return radios.some((r) =>
+          r.id.toLowerCase().includes('vartman') ||
+          r.value.toLowerCase().includes('vartman') ||
+          (r.parentElement && r.parentElement.innerText.includes('वर्तमान नकल'))
+        );
+      });
 
-      if (alreadyConfirmed) {
-        this.log(`✅ [ALREADY PRESENT] Next section "${nextKeyword}" is already active.`);
+      if (isConfirmed) {
+        this.log('✅ [CONFIRMED] Stage 1 ("जमाबंदी की प्रतिलिपि") active and "वर्तमान नकल" options rendered!');
+        await this.takeStepScreenshot('6_jamabandi_selected');
         return true;
       }
 
-      // 2. Locate target radio and its label in DOM
-      const targetRadio = await this.safeEvaluate((kw) => {
+      this.log(`   Attempt ${attempt}/4: Triggering selection for "जमाबंदी की प्रतिलिपि"...`);
+
+      await this.safeEvaluate(() => {
         const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
-        for (const r of radios) {
-          const p = (r.parentElement ? r.parentElement.innerText : '').trim();
-          const l = document.querySelector(`label[for="${r.id}"]`);
-          const lt = (l ? l.innerText : '').trim();
-          const full = `${p} ${lt} ${r.value} ${r.id}`;
-          if (full.includes(kw)) {
-            return {
-              id: r.id,
-              name: r.name,
-              value: r.value,
-              onclick: r.getAttribute('onclick') || '',
-              checked: r.checked,
-              labelText: lt || p,
-            };
+        const jamabandiRadio =
+          radios.find(
+            (r) =>
+              r.id.includes('Khate_se') ||
+              r.value === 'Khate_se' ||
+              (r.parentElement && r.parentElement.innerText.includes('जमाबंदी की प्रतिलिपि'))
+          ) || radios[0];
+
+        if (jamabandiRadio) {
+          jamabandiRadio.checked = true;
+          jamabandiRadio.setAttribute('checked', 'checked');
+          if (typeof __doPostBack === 'function') {
+            const target = jamabandiRadio.name || jamabandiRadio.id.replace(/_/g, '$');
+            __doPostBack(target, '');
+          } else if (jamabandiRadio.form) {
+            jamabandiRadio.form.submit();
           }
         }
-        return null;
-      }, radioKeyword);
+      });
 
-      this.log(`   Attempt ${attempt}/4: Found Target: ${JSON.stringify(targetRadio)}`);
-
-      if (targetRadio && targetRadio.id) {
-        // Attempt A: Native Puppeteer click on Label or Input
-        let clickedViaHandle = false;
-        try {
-          const labelEl = await this.page.$(`label[for="${targetRadio.id}"]`);
-          if (labelEl) {
-            this.log(`   Clicking label element for "${targetRadio.id}"...`);
-            await labelEl.click();
-            clickedViaHandle = true;
-          } else {
-            const inputEl = await this.page.$(`#${targetRadio.id}`);
-            if (inputEl) {
-              this.log(`   Clicking radio input element "#${targetRadio.id}"...`);
-              await inputEl.click();
-              clickedViaHandle = true;
-            }
-          }
-        } catch (e) {
-          this.log(`   Handle click error: ${e.message}`);
-        }
-
-        // Wait for potential page response
-        await Promise.race([
-          this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 5000 }).catch(() => {}),
-          this.waitForAsyncPostback(2000),
-          delay(2500),
-        ]);
-        await delay(800);
-
-        // Check if next section appeared
-        let isSuccess = await this.safeEvaluate((nKw) => {
-          const text = (document.body ? document.body.innerText : '') || '';
-          const selects = document.querySelectorAll('select');
-          if (nKw === 'select_dropdown') return selects.length > 0;
-          return text.includes(nKw);
-        }, nextKeyword);
-
-        if (isSuccess) {
-          this.log(`✅ [CONFIRMED] "${radioKeyword}" confirmed! Next section "${nextKeyword}" is active.`);
-          return true;
-        }
-
-        // Attempt B: Explicit ASP.NET form postback
-        this.log(`   Triggering explicit ASP.NET __doPostBack for "${targetRadio.id}"...`);
-        await this.safeEvaluate((tId, tName) => {
-          const r = document.getElementById(tId);
-          if (r) {
-            r.checked = true;
-            const oc = r.getAttribute('onclick');
-            if (oc && oc.includes('__doPostBack')) {
-              try { eval(oc.replace('javascript:', '')); return; } catch {}
-            }
-            if (typeof __doPostBack === 'function') {
-              const target = tName || tId.replace(/_/g, '$');
-              try { __doPostBack(target, ''); } catch {
-                try { __doPostBack(tId.replace(/_/g, '$'), ''); } catch {}
-              }
-            } else if (r.form) {
-              r.form.submit();
-            }
-          }
-        }, targetRadio.id, targetRadio.name);
-
-        await Promise.race([
-          this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 6000 }).catch(() => {}),
-          this.waitForAsyncPostback(2500),
-          delay(3000),
-        ]);
-        await delay(1000);
-
-        isSuccess = await this.safeEvaluate((nKw) => {
-          const text = (document.body ? document.body.innerText : '') || '';
-          const selects = document.querySelectorAll('select');
-          if (nKw === 'select_dropdown') return selects.length > 0;
-          return text.includes(nKw);
-        }, nextKeyword);
-
-        if (isSuccess) {
-          this.log(`✅ [CONFIRMED] "${radioKeyword}" confirmed via ASP.NET PostBack! Next section "${nextKeyword}" is active.`);
-          return true;
-        }
-      } else {
-        this.log(`   Radio matching "${radioKeyword}" not found in DOM.`);
-      }
-
+      await Promise.race([
+        this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 6000 }).catch(() => {}),
+        this.waitForAsyncPostback(2500),
+        delay(3000),
+      ]);
       await delay(1000);
+      await this.dismissModals();
     }
-    return false;
+
+    throw new Error('चरण "जमाबंदी की प्रतिलिपि" का चयन पुष्ट नहीं हो सका।');
   }
 
   /**
-   * Step 5: Select "जमाबंदी की प्रतिलिपि" ➔ "वर्तमान नकल" ➔ "खाता से" ➔ Khata (e.g. 525 / 560)
+   * Stage 2: Select "वर्तमान नकल"
    */
-  async selectJamabandiAndKhata() {
-    const { searchValue } = this.config;
-    this.log(`📌 7. Configuring Jamabandi Options for Khata "${searchValue}"...`);
-
+  async stage2_SelectVartmanRadio() {
+    this.log('👉 [Stage 2: वर्तमान नकल] Selecting "वर्तमान नकल"...');
     await this.dismissModals();
-    await this.page.waitForSelector('input[type="radio"], label, table', { timeout: 15000 }).catch(() => {});
-    await delay(1000);
-    await this.takeStepScreenshot('5_options_page_opened');
 
-    // 👉 Stage 1: Select "जमाबंदी की प्रतिलिपि"
-    const s1 = await this.clickRadioAndConfirm('जमाबंदी', 'वर्तमान', 'Stage 1: जमाबंदी की प्रतिलिपि');
-    await this.takeStepScreenshot('6_jamabandi_selected');
-    if (!s1) {
-      throw new Error('चरण "जमाबंदी की प्रतिलिपि" का चयन पुष्ट नहीं हो सका।');
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      // Check if Stage 2 is already fulfilled (i.e. 'खाता से' or 'खसरा से' search mode radios exist)
+      const isConfirmed = await this.safeEvaluate(() => {
+        const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
+        return radios.some(
+          (r) =>
+            (r.id.toLowerCase().includes('khata') ||
+              r.value.toLowerCase().includes('khata') ||
+              (r.parentElement && r.parentElement.innerText.includes('खाता से'))) &&
+            r.id !== 'ctl00_ContentPlaceHolder1_Khate_se'
+        );
+      });
+
+      if (isConfirmed) {
+        this.log('✅ [CONFIRMED] Stage 2 ("वर्तमान नकल") active and Search Mode options rendered!');
+        await this.takeStepScreenshot('7_vartman_selected');
+        return true;
+      }
+
+      this.log(`   Attempt ${attempt}/4: Triggering selection for "वर्तमान नकल"...`);
+
+      await this.safeEvaluate(() => {
+        const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
+        const vartmanRadio = radios.find(
+          (r) =>
+            r.id.toLowerCase().includes('vartman') ||
+            r.value.toLowerCase().includes('vartman') ||
+            (r.parentElement && r.parentElement.innerText.includes('वर्तमान नकल'))
+        );
+
+        if (vartmanRadio) {
+          vartmanRadio.checked = true;
+          vartmanRadio.setAttribute('checked', 'checked');
+          if (typeof __doPostBack === 'function') {
+            const target = vartmanRadio.name || vartmanRadio.id.replace(/_/g, '$');
+            __doPostBack(target, '');
+          } else if (vartmanRadio.form) {
+            vartmanRadio.form.submit();
+          }
+        }
+      });
+
+      await Promise.race([
+        this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 6000 }).catch(() => {}),
+        this.waitForAsyncPostback(2500),
+        delay(3000),
+      ]);
+      await delay(1000);
+      await this.dismissModals();
     }
 
-    // 👉 Stage 2: Select "वर्तमान नकल"
-    const s2 = await this.clickRadioAndConfirm('वर्तमान', 'खाता', 'Stage 2: वर्तमान नकल');
-    await this.takeStepScreenshot('7_vartman_selected');
-    if (!s2) {
-      throw new Error('चरण "वर्तमान नकल" का चयन पुष्ट नहीं हो सका।');
+    throw new Error('चरण "वर्तमान नकल" का चयन पुष्ट नहीं हो सका।');
+  }
+
+  /**
+   * Stage 3: Select "खाता से"
+   */
+  async stage3_SelectKhataRadio() {
+    this.log('👉 [Stage 3: खाता से] Selecting "खाता से"...');
+    await this.dismissModals();
+
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      // Check if Stage 3 is already fulfilled (i.e. Khata select dropdown is rendered with numbers)
+      const isConfirmed = await this.safeEvaluate(() => {
+        const selects = Array.from(document.querySelectorAll('select'));
+        return selects.some(
+          (s) =>
+            s.id.toLowerCase().includes('khata') ||
+            (s.options && Array.from(s.options).some((o) => /^\d+$/.test(o.value.trim()) || /^\d+$/.test(o.text.trim())))
+        );
+      });
+
+      if (isConfirmed) {
+        this.log('✅ [CONFIRMED] Stage 3 ("खाता से") active and Khata dropdown populated!');
+        await this.takeStepScreenshot('8_khata_radio_selected');
+        return true;
+      }
+
+      this.log(`   Attempt ${attempt}/4: Triggering selection for "खाता से"...`);
+
+      await this.safeEvaluate(() => {
+        const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
+        const khataRadio = radios.find(
+          (r) =>
+            (r.id.toLowerCase().includes('khata') ||
+              r.value.toLowerCase().includes('khata') ||
+              (r.parentElement && r.parentElement.innerText.includes('खाता से'))) &&
+            r.id !== 'ctl00_ContentPlaceHolder1_Khate_se'
+        );
+
+        if (khataRadio) {
+          khataRadio.checked = true;
+          khataRadio.setAttribute('checked', 'checked');
+          if (typeof __doPostBack === 'function') {
+            const target = khataRadio.name || khataRadio.id.replace(/_/g, '$');
+            __doPostBack(target, '');
+          } else if (khataRadio.form) {
+            khataRadio.form.submit();
+          }
+        }
+      });
+
+      await Promise.race([
+        this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 6000 }).catch(() => {}),
+        this.waitForAsyncPostback(2500),
+        delay(3000),
+      ]);
+      await delay(1000);
+      await this.dismissModals();
     }
 
-    // 👉 Stage 3: Select "खाता से"
-    const s3 = await this.clickRadioAndConfirm('खाता', 'select_dropdown', 'Stage 3: खाता से');
-    await this.takeStepScreenshot('8_khata_radio_selected');
-    if (!s3) {
-      throw new Error('चरण "खाता से" का चयन पुष्ट नहीं हो सका।');
-    }
+    throw new Error('चरण "खाता से" का चयन पुष्ट नहीं हो सका।');
+  }
 
-    // 👉 Stage 4: Select Khata Number in dropdown
+  /**
+   * Stage 4: Select Khata Number in dropdown
+   */
+  async stage4_SelectKhataNumber(searchValue) {
     this.log(`🎯 [Stage 4] Selecting Khata No. "${searchValue}" in dropdown...`);
     await delay(800);
     await this.dismissModals();
@@ -724,6 +740,9 @@ export class ApnaKhataExtractor {
               }
               if (typeof select.onchange === 'function') select.onchange();
               select.dispatchEvent(new Event('change', { bubbles: true }));
+              if (typeof __doPostBack === 'function' && select.getAttribute('onchange')?.includes('__doPostBack')) {
+                __doPostBack(select.name || select.id.replace(/_/g, '$'), '');
+              }
               return { confirmed: true, text, id: select.id, value: opt.value };
             }
           }
@@ -738,14 +757,14 @@ export class ApnaKhataExtractor {
       await delay(1000);
       await this.waitForAsyncPostback(1000);
     }
+  }
 
-    await this.waitForAsyncPostback(1500);
-    await delay(800);
-    await this.dismissModals();
-
-    // 👉 Stage 5: Click "नकल (सूचनार्थ)" button to trigger the table generation
+  /**
+   * Stage 5: Click "नकल (सूचनार्थ)" button & Confirm Table
+   */
+  async stage5_ClickNakalSuchnarth() {
     this.log('👉 [Stage 5] Clicking "नकल (सूचनार्थ)" button and rendering Jamabandi table...');
-    
+
     await this.safeEvaluate(() => {
       window.confirm = () => true;
       window.alert = () => true;
@@ -790,6 +809,9 @@ export class ApnaKhataExtractor {
             id.includes('btnnakal')
           ) {
             btn.click();
+            if (typeof __doPostBack === 'function') {
+              try { __doPostBack(btn.name || btn.id.replace(/_/g, '$'), ''); } catch {}
+            }
             return { clicked: true, text: val, id: btn.id };
           }
         }
@@ -798,6 +820,10 @@ export class ApnaKhataExtractor {
     }
 
     this.log(`   Nakal button click status: ${JSON.stringify(clickedInfo)}`);
+
+    if (!clickedInfo || !clickedInfo.clicked) {
+      throw new Error('"नकल (सूचनार्थ)" बटन नहीं मिला या क्लिक नहीं हो सका।');
+    }
 
     // Check if new tab was opened
     await delay(1500);
@@ -835,7 +861,39 @@ export class ApnaKhataExtractor {
     });
 
     this.log(`📊 [CONFIRMED] Table Render Confirmation: ${JSON.stringify(tableConfirmed)}`);
+    if (!tableConfirmed || !tableConfirmed.confirmed) {
+      throw new Error('जमाबंदी नकल रिकॉर्ड तालिका लोड नहीं हो सकी (Table not rendered).');
+    }
+
     await this.takeStepScreenshot('5_table_rendered');
+  }
+
+  /**
+   * Step 5: Select "जमाबंदी की प्रतिलिपि" ➔ "वर्तमान नकल" ➔ "खाता से" ➔ Khata (e.g. 525 / 560)
+   */
+  async selectJamabandiAndKhata() {
+    const { searchValue } = this.config;
+    this.log(`📌 7. Configuring Jamabandi Options for Khata "${searchValue}"...`);
+
+    await this.dismissModals();
+    await this.page.waitForSelector('input[type="radio"], label, table', { timeout: 15000 }).catch(() => {});
+    await delay(1000);
+    await this.takeStepScreenshot('5_options_page_opened');
+
+    // 👉 Stage 1: Select "जमाबंदी की प्रतिलिपि"
+    await this.stage1_SelectJamabandiRadio();
+
+    // 👉 Stage 2: Select "वर्तमान नकल"
+    await this.stage2_SelectVartmanRadio();
+
+    // 👉 Stage 3: Select "खाता से"
+    await this.stage3_SelectKhataRadio();
+
+    // 👉 Stage 4: Select Khata Number in dropdown
+    await this.stage4_SelectKhataNumber(searchValue);
+
+    // 👉 Stage 5: Click "नकल (सूचनार्थ)" button & Confirm Table
+    await this.stage5_ClickNakalSuchnarth();
   }
 
   /**
