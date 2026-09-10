@@ -6,51 +6,56 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
-// Health check / welcome message for browser GET requests
+// Health check & Documentation for browser GET requests
 app.get('/', (req, res) => {
   res.json({
     status: 'online',
-    message: 'Apna Khata Jamabandi Scraper API is running successfully!',
-    endpoint: 'POST /api/extract',
-    samplePayload: {
-      district: 'भीलवाड़ा',
-      tehsil: 'बनेड़ा',
-      village: 'रायला - रायला - रायला',
-      searchBy: 'khata',
-      searchValue: '560',
-      headless: true,
+    message: '🏛️ Rajasthan Apna Khata Jamabandi Extraction API is Live!',
+    endpoints: {
+      'GET /api/jamabandi': {
+        description: 'Extract Jamabandi using URL query parameters',
+        example: `${req.protocol}://${req.get('host')}/api/jamabandi?district=भीलवाड़ा&tehsil=बनेड़ा&village=रायला - रायला - रायला&khata=560`,
+      },
+      'POST /api/jamabandi': {
+        description: 'Extract Jamabandi using JSON Body payload',
+        samplePayload: {
+          district: 'भीलवाड़ा',
+          tehsil: 'बनेड़ा',
+          village: 'रायला - रायला - रायला',
+          khata: '560',
+        },
+      },
+      'POST /api/extract': {
+        description: 'Legacy endpoint for web UI and forms',
+      },
     },
   });
 });
 
-app.get('/api/extract', (req, res) => {
-  res.json({
-    status: 'ready',
-    message: 'Please send an HTTP POST request to this endpoint with JSON payload (district, tehsil, village, searchValue).',
-  });
-});
-
 /**
- * POST /api/extract
- * Body: { district, tehsil, village, searchBy, searchValue, headless }
+ * Common handler function for Jamabandi extraction
  */
-app.post('/api/extract', async (req, res) => {
-  console.log('\n📥 Received extraction request:');
-  console.log(req.body);
+async function handleJamabandiExtraction(req, res) {
+  const district = req.query.district || req.body.district || 'भीलवाड़ा';
+  const tehsil = req.query.tehsil || req.body.tehsil || 'बनेड़ा';
+  const village = req.query.village || req.body.village || 'रायला - रायला - रायला';
+  const khata = String(req.query.khata || req.body.khata || req.query.searchValue || req.body.searchValue || '560').trim();
+
+  console.log(`\n📥 [API Request] District: "${district}", Tehsil: "${tehsil}", Village: "${village}", Khata: "${khata}"`);
 
   try {
     const config = {
-      district: req.body.district || 'भीलवाड़ा',
-      tehsil: req.body.tehsil || 'बनेड़ा',
-      village: req.body.village || 'रायला - रायला - रायला',
-      searchBy: req.body.searchBy || 'khata',
-      searchValue: String(req.body.searchValue || '560').trim(),
+      district,
+      tehsil,
+      village,
+      searchBy: 'khata',
+      searchValue: khata,
       options: {
-        headless: req.body.headless ?? true, // Default to headless on cloud server
+        headless: true,
         saveJson: false,
         saveCsv: false,
-        saveScreenshot: req.body.saveScreenshot ?? false,
-        savePdf: req.body.savePdf ?? false,
+        saveScreenshot: false,
+        savePdf: false,
         outputDir: './output',
       },
     };
@@ -58,26 +63,62 @@ app.post('/api/extract', async (req, res) => {
     const extractor = new ApnaKhataExtractor(config);
     const result = await extractor.run();
 
-    if (result.success) {
+    if (result.success && result.data) {
+      // Calculate total area if numeric
+      let totalRakba = 0;
+      if (result.data.khasraRecords && result.data.khasraRecords.length > 0) {
+        result.data.khasraRecords.forEach((r) => {
+          const num = parseFloat(r.rakbaHectare);
+          if (!isNaN(num)) totalRakba += num;
+        });
+      }
+
       res.json({
+        success: true,
         status: 'success',
         message: 'Jamabandi extracted successfully',
-        data: result.data,
-        files: result.files,
+        data: {
+          district: result.data.district || district,
+          tehsil: result.data.tehsil || tehsil,
+          village: result.data.village || village,
+          khataNumber: result.data.khataNumber || khata,
+          selectedOptions: result.data.selectedOptions || {
+            nakalType: 'जमाबंदी की प्रतिलिपि',
+            nakalPeriod: 'वर्तमान नकल',
+            searchMode: 'खाता से',
+          },
+          owners: result.data.owners || [],
+          totalKhasraCount: result.data.khasraRecords ? result.data.khasraRecords.length : 0,
+          totalRakbaHectare: totalRakba > 0 ? totalRakba.toFixed(4) : null,
+          khasraRecords: result.data.khasraRecords || [],
+          extractedAt: result.data.extractedAt || new Date().toISOString(),
+        },
       });
     } else {
       res.status(500).json({
+        success: false,
         status: 'error',
-        message: result.error,
+        message: result.error || 'Failed to extract Jamabandi record',
       });
     }
   } catch (err) {
+    console.error('API Error:', err);
     res.status(500).json({
+      success: false,
       status: 'error',
       message: err.message,
     });
   }
-});
+}
+
+// 1. GET /api/jamabandi?district=...&tehsil=...&village=...&khata=560
+app.get('/api/jamabandi', handleJamabandiExtraction);
+
+// 2. POST /api/jamabandi { district, tehsil, village, khata }
+app.post('/api/jamabandi', handleJamabandiExtraction);
+
+// 3. POST /api/extract (compatible with existing extract.php)
+app.post('/api/extract', handleJamabandiExtraction);
 
 app.listen(PORT, () => {
   console.log(`🚀 Apna Khata Extraction API listening on port ${PORT}`);
