@@ -110,7 +110,7 @@ export class ApnaKhataExtractor {
 
     // Dismiss popup
     console.log('🧹 Dismissing popup modal...');
-    await this.page.evaluate(() => {
+    await this.safeEvaluate(() => {
       const closeButtons = document.querySelectorAll('.close-icon, .close, [data-dismiss="modal"], button.close, span.close');
       closeButtons.forEach((b) => b.click());
 
@@ -124,7 +124,7 @@ export class ApnaKhataExtractor {
 
     // Click "जमाबंदी नकल" button on right sidebar
     console.log('👉 2. Clicking "जमाबंदी नकल" button...');
-    await this.page.evaluate(() => {
+    await this.safeEvaluate(() => {
       const elements = Array.from(document.querySelectorAll('a, button, li a, div a, span a'));
       for (const el of elements) {
         const text = (el.innerText || '').trim();
@@ -156,7 +156,7 @@ export class ApnaKhataExtractor {
 
     await this.page.waitForSelector('select, a, table', { timeout: 10000 }).catch(() => {});
 
-    let selectedText = await this.page.evaluate((target) => {
+    let selectedText = await this.safeEvaluate((target) => {
       const selects = Array.from(document.querySelectorAll('select'));
       for (const select of selects) {
         for (const opt of select.options) {
@@ -198,7 +198,7 @@ export class ApnaKhataExtractor {
     console.log(`\n🏛️ 4. Selecting Tehsil: "${tehsilName}"...`);
     await delay(800);
 
-    let tehsilChosen = await this.page.evaluate((target) => {
+    let tehsilChosen = await this.safeEvaluate((target) => {
       const selects = Array.from(document.querySelectorAll('select'));
       for (const select of selects) {
         if (select.id.toLowerCase().includes('district') && selects.length > 1) continue;
@@ -299,7 +299,7 @@ export class ApnaKhataExtractor {
 
     try {
       const initial = villageName.trim().charAt(0);
-      await this.page.evaluate((firstLetter) => {
+      await this.safeEvaluate((firstLetter) => {
         const links = Array.from(document.querySelectorAll('a, button, input[type="button"], span'));
         for (const link of links) {
           const text = (link.innerText || link.getAttribute('value') || '').trim();
@@ -313,7 +313,7 @@ export class ApnaKhataExtractor {
 
     await delay(1200);
 
-    let villageSelected = await this.page.evaluate((target) => {
+    let villageSelected = await this.safeEvaluate((target) => {
       const cleanTarget = target.trim();
       const firstWord = cleanTarget.split(/[\s\-]+/)[0];
       const links = Array.from(document.querySelectorAll('table a, div a, tr a, td a, a'));
@@ -372,22 +372,29 @@ export class ApnaKhataExtractor {
     }
 
     console.log('⏳ Waiting for Nakal Options page to load...');
-    await delay(2000);
+    await Promise.race([
+      this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 8000 }).catch(() => {}),
+      delay(2500),
+    ]);
+    await delay(1000);
   }
 
   async safeEvaluate(fn, ...args) {
-    for (let attempt = 1; attempt <= 4; attempt++) {
+    for (let attempt = 1; attempt <= 5; attempt++) {
       try {
         return await this.page.evaluate(fn, ...args);
       } catch (err) {
+        const msg = (err && err.message) ? err.message : String(err);
         if (
-          err.message.includes('Execution context was destroyed') ||
-          err.message.includes('Target closed') ||
-          err.message.includes('Cannot find context with specified id')
+          msg.includes('Execution context was destroyed') ||
+          msg.includes('Target closed') ||
+          msg.includes('Cannot find context with specified id') ||
+          msg.includes('context') ||
+          msg.includes('navigation')
         ) {
-          console.log(`⏳ Navigation detected/Execution context renewed (attempt ${attempt}), waiting for DOM...`);
+          console.log(`⏳ Navigation detected/Execution context renewed (attempt ${attempt}/5), waiting for DOM...`);
           await delay(1500);
-          await this.page.waitForSelector('body', { timeout: 8000 }).catch(() => {});
+          await this.page.waitForSelector('body', { timeout: 10000 }).catch(() => {});
         } else {
           throw err;
         }
@@ -446,13 +453,22 @@ export class ApnaKhataExtractor {
 
   async takeStepScreenshot(stepKey) {
     if (!this.stepScreenshots) this.stepScreenshots = {};
-    try {
-      await delay(500);
-      const buf = await this.page.screenshot({ type: 'jpeg', quality: 75, fullPage: false });
-      this.stepScreenshots[stepKey] = `data:image/jpeg;base64,${buf.toString('base64')}`;
-      console.log(`📸 Captured step screenshot: "${stepKey}"`);
-    } catch (e) {
-      console.warn(`Could not capture screenshot for ${stepKey}:`, e.message);
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        await delay(500);
+        const buf = await this.page.screenshot({ type: 'jpeg', quality: 75, fullPage: false });
+        this.stepScreenshots[stepKey] = `data:image/jpeg;base64,${buf.toString('base64')}`;
+        console.log(`📸 Captured step screenshot: "${stepKey}"`);
+        break;
+      } catch (e) {
+        if (e.message.includes('Execution context') || e.message.includes('Target closed') || e.message.includes('navigating')) {
+          console.log(`⏳ Screenshot delayed due to navigation (${stepKey})...`);
+          await delay(1200);
+        } else {
+          console.warn(`Could not capture screenshot for ${stepKey}:`, e.message);
+          break;
+        }
+      }
     }
   }
 
@@ -476,7 +492,7 @@ export class ApnaKhataExtractor {
       await this.dismissModals();
       
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        const clicked = await this.page.evaluate((targetKws) => {
+        const clicked = await this.safeEvaluate((targetKws) => {
           const allRadios = Array.from(document.querySelectorAll('input[type="radio"]'));
           for (const r of allRadios) {
             const parent = r.parentElement;
@@ -531,7 +547,7 @@ export class ApnaKhataExtractor {
 
         // Verify if the next expected options are visible on screen
         if (verifyKeywords && verifyKeywords.length > 0) {
-          const isVerified = await this.page.evaluate((vKws) => {
+          const isVerified = await this.safeEvaluate((vKws) => {
             const text = document.body.innerText;
             return vKws.some((kw) => text.includes(kw));
           }, verifyKeywords);
@@ -566,7 +582,7 @@ export class ApnaKhataExtractor {
     await this.dismissModals();
 
     // Select Khata number directly in <select> dropdown (avoid clicking input boxes that trigger "आवेदन करें" modal)
-    const chosen = await this.page.evaluate((targetKhata) => {
+    const chosen = await this.safeEvaluate((targetKhata) => {
       const cleanTarget = targetKhata.replace(/[^\d]/g, '');
 
       // 1. Check all <select> dropdowns on page
@@ -620,7 +636,7 @@ export class ApnaKhataExtractor {
 
     // 👉 CRUCIAL STEP: Click "नकल (सूचनार्थ)" button to trigger the table generation
     console.log('👉 8. Clicking "नकल (सूचनार्थ)" button to render Jamabandi table...');
-    const nakalBtnClicked = await this.page.evaluate(() => {
+    const nakalBtnClicked = await this.safeEvaluate(() => {
       const allButtons = Array.from(
         document.querySelectorAll('input[type="submit"], input[type="button"], button, a.btn, a')
       );
@@ -648,8 +664,12 @@ export class ApnaKhataExtractor {
 
     // Wait for Jamabandi table to render on page
     console.log('⏳ Waiting for Jamabandi Record Table to render...');
-    await this.waitForAsyncPostback(3000);
-    await delay(2000);
+    await Promise.race([
+      this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 6000 }).catch(() => {}),
+      delay(2000),
+    ]);
+    await this.waitForAsyncPostback(2000);
+    await delay(1500);
     await this.dismissModals();
     await this.takeStepScreenshot('5_table_rendered');
   }
