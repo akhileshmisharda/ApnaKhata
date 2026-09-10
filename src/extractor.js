@@ -230,8 +230,64 @@ export class ApnaKhataExtractor {
       console.log(`✅ Selected Tehsil: "${tehsilChosen}"`);
     }
 
-    console.log('⏳ Waiting for Village list to populate...');
-    await delay(1800);
+    console.log('⏳ Waiting for Tehsil to settle...');
+    await this.waitForAsyncPostback(1500);
+    await delay(1000);
+  }
+
+  /**
+   * Step 3.5: Select "चोसाला पद्धति जमाबंदी" (Chosala Padhti Jamabandi)
+   */
+  async selectChosalaPadhti() {
+    console.log(`\n📑 4.5. Selecting "चोसाला पद्धति जमाबंदी" (Chosala Padhti Jamabandi)...`);
+    await delay(800);
+
+    const chosen = await this.safeEvaluate(() => {
+      const allRadios = Array.from(document.querySelectorAll('input[type="radio"]'));
+      for (const r of allRadios) {
+        const parent = r.parentElement;
+        const pText = (parent ? parent.innerText : '').trim();
+        const nText = (r.nextSibling ? r.nextSibling.textContent : '').trim();
+        const label = document.querySelector(`label[for="${r.id}"]`);
+        const lText = (label ? label.innerText : '').trim();
+        const fullText = `${pText} ${nText} ${lText} ${r.value} ${r.id}`;
+
+        if (fullText.includes('चोसाला') || fullText.includes('chosala') || fullText.includes('Chosala') || (r.value && r.value.toLowerCase().includes('chosala'))) {
+          r.click();
+          r.checked = true;
+          if (r.getAttribute('onclick')) {
+            try { eval(r.getAttribute('onclick')); } catch {}
+          }
+          if (typeof r.onclick === 'function') {
+            try { r.onclick(); } catch {}
+          }
+          r.dispatchEvent(new Event('click', { bubbles: true }));
+          r.dispatchEvent(new Event('change', { bubbles: true }));
+          return { success: true, text: lText || pText || fullText, id: r.id };
+        }
+      }
+
+      const labels = Array.from(document.querySelectorAll('label, td, span, div'));
+      for (const l of labels) {
+        const text = (l.innerText || '').trim();
+        if (text.includes('चोसाला')) {
+          const inside = l.querySelector('input[type="radio"]');
+          if (inside) {
+            inside.click();
+            inside.checked = true;
+            inside.dispatchEvent(new Event('change', { bubbles: true }));
+            return { success: true, text };
+          }
+          l.click();
+          return { success: true, text };
+        }
+      }
+      return { success: false };
+    });
+
+    console.log(`   Chosala Radio selection result: ${JSON.stringify(chosen)}`);
+    await this.waitForAsyncPostback(2000);
+    await delay(1200);
   }
 
   /**
@@ -867,6 +923,10 @@ export class ApnaKhataExtractor {
       if (this.config.tehsil) {
         await this.selectTehsil(this.config.tehsil);
       }
+      
+      // Select "चोसाला पद्धति जमाबंदी" (Chosala Padhti Jamabandi)
+      await this.selectChosalaPadhti();
+
       if (this.config.village) {
         await this.selectVillage(this.config.village);
       }
