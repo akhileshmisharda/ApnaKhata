@@ -158,7 +158,7 @@ app.get('/', (req, res) => {
     <div class="d-flex justify-content-between align-items-center mb-3">
       <h5 class="fw-bold text-primary mb-0">
         <span class="spinner-border spinner-border-sm me-2"></span>
-        लाइव स्टेज ट्रैकर (Real-time Live Stages)
+        लाइव स्टेज एवं UI ट्रैकर (Real-time Live Stages & UI Updates)
       </h5>
       <span id="liveTimer" class="badge bg-secondary p-2">⏱️ 0s बीत चुके</span>
     </div>
@@ -169,10 +169,13 @@ app.get('/', (req, res) => {
       <div id="stage3" class="step-item"><span class="me-2">🏛️</span> 3. तहसील चयन: <span class="tehsilLabel">बनेड़ा</span> (Tehsil Selected)</div>
       <div id="stage4" class="step-item"><span class="me-2">📑</span> 4. "चोसाला पद्धति जमाबंदी" चयन (Chosala Padhti Active)</div>
       <div id="stage5" class="step-item"><span class="me-2">🌾</span> 5. गाँव चयन: <span class="villageLabel">रायला</span> (Village Selected)</div>
-      <div id="stage6" class="step-item"><span class="me-2">🎯</span> 6. खाता चयन (<span class="khataLabel">525</span>) एवं तालिका लोड (Khata Selected)</div>
-      <div id="stage7" class="step-item"><span class="me-2">📊</span> 7. काश्तकार व खसरा विवरण विश्लेषण (Extracted Complete Data)</div>
+      <div id="stage6" class="step-item"><span class="me-2">🎯</span> 6. खाता चयन (<span class="khataLabel">525</span>) एवं तालिका लोड (Khata Placed & Table Rendered)</div>
+      <div id="stage7" class="step-item"><span class="me-2">📊</span> 7. काश्तकार व खसरा विवरण विश्लेषण (Complete Data Extracted)</div>
     </div>
 
+    <div class="mb-2">
+      <small class="fw-bold text-muted text-uppercase">🔍 लाइव सब-स्टेप्स और DOM/UI स्थिति (Live Action & UI Verification Log):</small>
+    </div>
     <div class="terminal-box" id="liveConsole">
       <div>[0.0s] ⚡ Initializing Live Stream from Google Cloud Run...</div>
     </div>
@@ -190,7 +193,7 @@ app.get('/', (req, res) => {
     <div class="table-responsive">
       <table class="table table-bordered table-hover mb-0 bg-white">
         <thead class="table-dark">
-          <tr><th>खाता</th><th>खसरा नंबर</th><th>रकबा (हेक्टेयर)</th><th>सिंचाई</th><th>भूमि वर्गीकरण</th></tr>
+          <tr><th>खाता</th><th>खसरा नंबर</th><th>रकबा (हेक्टेयर)</th><th>सिंचाई</th><th>भूमि वर्गीकरण / लगान</th></tr>
         </thead>
         <tbody id="khasraBody"></tbody>
       </table>
@@ -211,12 +214,26 @@ function setStageUI(num) {
   }
 }
 
-function appendLog(msg) {
+function appendLog(msg, latestStep) {
   const box = document.getElementById('liveConsole');
   const d = document.createElement('div');
-  d.textContent = msg;
+  
+  if (latestStep && latestStep.status) {
+    let badgeClass = 'text-warning';
+    if (latestStep.uiVerified) badgeClass = 'text-success fw-bold';
+    else if (latestStep.status === 'click_accepted') badgeClass = 'text-info';
+    d.innerHTML = '<span class="' + badgeClass + '">' + escapeHtml(msg) + '</span>';
+  } else {
+    d.textContent = msg;
+  }
+  
   box.appendChild(d);
   box.scrollTop = box.scrollHeight;
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 document.getElementById('extractForm').addEventListener('submit', function(e) {
@@ -257,14 +274,18 @@ document.getElementById('extractForm').addEventListener('submit', function(e) {
     try {
       const data = JSON.parse(event.data);
       if (data.type === 'progress') {
-        appendLog('[' + data.time + '] ' + data.message);
-        if (data.message.includes('1. Opening') || data.message.includes('Closing opening')) setStageUI(1);
-        else if (data.message.includes('2. Selecting District')) setStageUI(2);
-        else if (data.message.includes('3. Selecting Tehsil')) setStageUI(3);
-        else if (data.message.includes('4. Selecting "चोसाला')) setStageUI(4);
-        else if (data.message.includes('5. Selecting Village')) setStageUI(5);
-        else if (data.message.includes('6. Configuring') || data.message.includes('Placing Khata')) setStageUI(6);
-        else if (data.message.includes('7. Extracting')) setStageUI(7);
+        appendLog('[' + data.time + '] ' + data.message, data.latestStep);
+        if (data.stage) {
+          setStageUI(data.stage);
+        } else {
+          if (data.message.includes('1. Portal') || data.message.includes('Connecting')) setStageUI(1);
+          else if (data.message.includes('District')) setStageUI(2);
+          else if (data.message.includes('Tehsil')) setStageUI(3);
+          else if (data.message.includes('चोसाला')) setStageUI(4);
+          else if (data.message.includes('Village')) setStageUI(5);
+          else if (data.message.includes('Khata') || data.message.includes('Nakal')) setStageUI(6);
+          else if (data.message.includes('Extract')) setStageUI(7);
+        }
       } else if (data.type === 'complete' && data.success) {
         clearInterval(timer);
         evtSource.close();
@@ -275,7 +296,7 @@ document.getElementById('extractForm').addEventListener('submit', function(e) {
         clearInterval(timer);
         evtSource.close();
         document.getElementById('submitBtn').disabled = false;
-        appendLog('❌ Error: ' + data.message);
+        appendLog('❌ Error: ' + (data.message || 'Unknown error'));
       }
     } catch (err) {}
   };
@@ -296,6 +317,11 @@ function renderResults(data) {
       li.textContent = '👤 ' + o;
       oList.appendChild(li);
     });
+  } else {
+    const li = document.createElement('li');
+    li.className = 'list-group-item text-muted';
+    li.textContent = 'कोई काश्तकार विवरण नहीं मिला';
+    oList.appendChild(li);
   }
 
   const tbody = document.getElementById('khasraBody');
@@ -306,6 +332,10 @@ function renderResults(data) {
       tr.innerHTML = '<td>' + (r.khataNo || '') + '</td><td><span class="badge bg-secondary">' + (r.khasraNo || '') + '</span></td><td><strong>' + (r.rakbaHectare || '') + '</strong></td><td>' + (r.irrigation || '-') + '</td><td>' + (r.soilAndTax || '-') + '</td>';
       tbody.appendChild(tr);
     });
+  } else {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="5" class="text-center text-muted p-3">कोई खसरा विवरण नहीं मिला</td>';
+    tbody.appendChild(tr);
   }
   document.getElementById('resultsCard').classList.remove('d-none');
 }
@@ -457,6 +487,7 @@ async function handleJamabandiExtraction(req, res) {
           khasraRecords: result.data.khasraRecords || [],
           screenshotBase64: result.data.screenshotBase64 || null,
           stepScreenshots: result.data.stepScreenshots || {},
+          detailedSteps: result.data.detailedSteps || [],
           logs: result.data.logs || [],
           extractedAt: result.data.extractedAt || new Date().toISOString(),
         },
@@ -467,7 +498,13 @@ async function handleJamabandiExtraction(req, res) {
         status: 'error',
         message: result.error || 'Failed to extract Jamabandi record',
         executionTimeSeconds: result.data ? result.data.executionTimeSeconds : null,
-        data: result.data || null,
+        data: {
+          detailedSteps: result.data ? result.data.detailedSteps || [] : [],
+          logs: result.data ? result.data.logs || [] : [],
+          screenshotBase64: result.data ? result.data.screenshotBase64 || null : null,
+          stepScreenshots: result.data ? result.data.stepScreenshots || {} : {},
+          errorAt: new Date().toISOString(),
+        },
       });
     }
   } catch (err) {
