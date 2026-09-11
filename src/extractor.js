@@ -112,10 +112,8 @@ export class ApnaKhataExtractor {
 
   async initBrowser() {
     if (this.browser) {
-      this.log('⚡ Reusing active Chrome browser instance (0ms startup)...');
       this.page = await this.browser.newPage();
     } else {
-      this.log('🚀 Launching Chrome browser engine...');
       const isHeadless = Boolean(this.config.options.headless);
       const chromeArgs = [
         '--no-sandbox',
@@ -209,7 +207,6 @@ export class ApnaKhataExtractor {
       ) {
         return { postbackTriggered: true };
       }
-      this.log(`⚠️ Note: Evaluation catch: ${msg}`);
       return null;
     }
   }
@@ -268,7 +265,6 @@ export class ApnaKhataExtractor {
    * Wait reactively for ASP.NET AJAX loading spinner / speed-meter overlay to completely disappear
    */
   async waitForLoadingToDisappear(timeout = 15000) {
-    this.log('⏳ Waiting for loading icon / spinner to disappear...');
     try {
       await this.page.waitForFunction(() => {
         // 1. Check ASP.NET async postback status
@@ -334,33 +330,31 @@ export class ApnaKhataExtractor {
    * Step 1: Open Homepage, Close Opening Screen Popup, and Click "जमाबंदी नकल"
    */
   async openPortal() {
-    this.stepUpdate(1, 'Connecting to Portal', 'action_triggered', 'https://apnakhata.rajasthan.gov.in/');
+    this.stepUpdate(1, 'पोर्टल कनेक्शन (Portal Connection)', 'action_triggered', 'पोर्टल से संपर्क स्थापित किया जा रहा है...');
     
     try {
       await this.page.goto('https://apnakhata.rajasthan.gov.in/', {
         waitUntil: 'domcontentloaded',
         timeout: 25000,
       });
-      this.stepUpdate(1, 'Connecting to Portal', 'ui_updated', 'Homepage loaded', true);
+      this.stepUpdate(1, 'पोर्टल कनेक्शन (Portal Connection)', 'ui_updated', 'पोर्टल लोड हुआ (Portal loaded)', true);
     } catch (e) {
-      this.log('   Retrying portal connect...');
       await this.page.goto('https://apnakhata.rajasthan.gov.in/', { timeout: 30000 }).catch(() => {});
     }
 
-    this.stepUpdate(1, 'Dismiss Popup Modal', 'action_triggered', 'Checking for .custom-popup');
+    this.stepUpdate(1, 'संवाद सत्यापन (Notice Dialogue)', 'action_triggered', 'प्रक्रिया जारी...');
     await this.dismissModals();
     await delay(300);
     await this.dismissModals();
-    this.stepUpdate(1, 'Dismiss Popup Modal', 'ui_updated', 'Popup dismissed', true);
+    this.stepUpdate(1, 'संवाद सत्यापन (Notice Dialogue)', 'ui_updated', 'सत्यापित (Verified)', true);
 
-    this.stepUpdate(1, 'Click जमाबंदी नकल Button', 'action_triggered', 'Locating VillSelAll3 link');
+    this.stepUpdate(1, 'जमाबंदी विकल्प (Jamabandi Option)', 'action_triggered', 'जमाबंदी नकल का चयन किया जा रहा है...');
     
-    // Method 1: Try native Puppeteer selector click with navigation wait
     let navigated = false;
     const jamabandiBtn = await this.page.$('a[href*="VillSelAll3"], a[href*="VillSel"]');
     if (jamabandiBtn) {
       try {
-        this.stepUpdate(1, 'Click जमाबंदी नकल Button', 'click_accepted', 'Button clicked');
+        this.stepUpdate(1, 'जमाबंदी विकल्प (Jamabandi Option)', 'click_accepted', 'विकल्प चुना गया (Option selected)');
         await Promise.all([
           this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 10000 }).catch(() => {}),
           jamabandiBtn.click(),
@@ -369,7 +363,6 @@ export class ApnaKhataExtractor {
       } catch (e) {}
     }
 
-    // Method 2: DOM Evaluate Click & window.location.href fallback
     if (!navigated) {
       await this.safeEvaluate(() => {
         const links = Array.from(document.querySelectorAll('a, button, div, span'));
@@ -388,7 +381,6 @@ export class ApnaKhataExtractor {
       await this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 10000 }).catch(() => {});
     }
 
-    // If still on homepage, directly open VillSelAll3.aspx with active session
     if (!this.page.url().includes('VillSel')) {
       await this.page.goto('https://apnakhata.rajasthan.gov.in/Owner_wise/VillSelAll3.aspx', {
         waitUntil: 'domcontentloaded',
@@ -396,33 +388,29 @@ export class ApnaKhataExtractor {
       }).catch(() => {});
     }
 
-    this.stepUpdate(1, 'District Selection Screen', 'ui_updated', 'VillSelAll3.aspx active with District Map & Dropdown', true);
+    this.stepUpdate(1, 'जिला चयन स्क्रीन (District Selection Screen)', 'ui_updated', 'जिला सूची उपलब्ध है (District selection active)', true);
     await this.dismissModals();
-    await this.takeStepScreenshot('0_portal_opened');
   }
 
   /**
    * Step 2: Select District (भीलवाड़ा / Bhilwara) from Map or Dropdown
    */
   async selectDistrict(districtName) {
-    this.stepUpdate(2, `Select District "${districtName}"`, 'action_triggered', 'Locating district in dropdown/map');
+    this.stepUpdate(2, `जिला चयन (${districtName})`, 'action_triggered', `जिला चुना जा रहा है: ${districtName}`);
     await this.dismissModals();
 
     for (let attempt = 1; attempt <= 3; attempt++) {
-      // 1. If Tehsil select is already active on VillSelAll3
       const isTehsilReady = await this.safeEvaluate(() => {
         const selects = Array.from(document.querySelectorAll('select'));
         return selects.length > 1 || (selects.length === 1 && selects[0].id.toLowerCase().includes('tehsil'));
       });
 
       if (isTehsilReady) {
-        this.stepUpdate(2, `Select District "${districtName}"`, 'ui_updated', 'Tehsil dropdown already populated', true);
+        this.stepUpdate(2, `जिला चयन (${districtName})`, 'ui_updated', 'तहसील सूची उपलब्ध है (Tehsil list ready)', true);
         break;
       }
 
-      // 2. Click District from Map / Links / SVG / Dropdown
       const clicked = await this.safeEvaluate((target) => {
-        // A. Check dropdown
         const selects = Array.from(document.querySelectorAll('select'));
         for (const select of selects) {
           for (let i = 0; i < select.options.length; i++) {
@@ -437,12 +425,11 @@ export class ApnaKhataExtractor {
                   __doPostBack(select.name || select.id.replace(/_/g, '$'), '');
                 }
               }, 0);
-              return { success: true, text: opt.text, method: 'dropdown' };
+              return { success: true, text: opt.text };
             }
           }
         }
 
-        // B. Check links / SVG map paths / area
         const links = Array.from(document.querySelectorAll('a, button, area, div, span, path, rect, g'));
         for (const el of links) {
           const text = (el.innerText || el.textContent || el.getAttribute('title') || el.getAttribute('data-name') || el.getAttribute('id') || '').trim();
@@ -453,7 +440,7 @@ export class ApnaKhataExtractor {
             (target === 'भीलवाड़ा' && (text.includes('Bhilwara') || href.includes('bhilwara') || href.includes('27') || (el.id && el.id.includes('27'))))
           ) {
             el.click();
-            return { success: true, text, method: 'link_or_map' };
+            return { success: true, text };
           }
         }
 
@@ -461,11 +448,10 @@ export class ApnaKhataExtractor {
       }, districtName);
 
       if (clicked && clicked.success) {
-        this.stepUpdate(2, `Select District "${districtName}"`, 'click_accepted', `Method: ${clicked.method}, postback triggered`);
+        this.stepUpdate(2, `जिला चयन (${districtName})`, 'click_accepted', 'जिला चयन स्वीकार हुआ (District accepted)');
       }
 
-      this.stepUpdate(2, 'Tehsil Dropdown', 'postback_running', 'Waiting for Tehsil list to load');
-      // Reactively wait for Tehsil dropdown to appear / populate
+      this.stepUpdate(2, 'तहसील सूची (Tehsil List)', 'postback_running', 'तहसील सूची लोड हो रही है...');
       const isConfirmed = await this.page.waitForFunction(() => {
         const selects = Array.from(document.querySelectorAll('select'));
         return selects.length > 1 || (selects.length === 1 && selects[0].options.length > 1);
@@ -476,21 +462,20 @@ export class ApnaKhataExtractor {
           const s = document.querySelector('select[id*="Tehsil"], select[name*="Tehsil"]') || document.querySelectorAll('select')[1];
           return s ? s.options.length : 0;
         });
-        this.stepUpdate(2, 'Tehsil Dropdown', 'ui_updated', `Loaded ${optionCount} tehsils in dropdown`, true);
+        this.stepUpdate(2, 'तहसील सूची (Tehsil List)', 'ui_updated', `तहसील सूची अपडेट हुई (${optionCount} तहसीलें उपलब्ध)`, true);
         break;
       }
       await delay(500);
     }
 
     await this.dismissModals();
-    await this.takeStepScreenshot('1_district_selected');
   }
 
   /**
    * Step 3: Select Tehsil (बनेड़ा / Banera)
    */
   async selectTehsil(tehsilName) {
-    this.stepUpdate(3, `Select Tehsil "${tehsilName}"`, 'action_triggered', 'Finding tehsil option in dropdown');
+    this.stepUpdate(3, `तहसील चयन (${tehsilName})`, 'action_triggered', `तहसील चुनी जा रही है: ${tehsilName}`);
     await this.dismissModals();
 
     for (let attempt = 1; attempt <= 3; attempt++) {
@@ -527,13 +512,12 @@ export class ApnaKhataExtractor {
       }, tehsilName);
 
       if (selResult && selResult.success) {
-        this.stepUpdate(3, `Select Tehsil "${tehsilName}"`, 'click_accepted', `Value: ${selResult.value}, postback fired`);
+        this.stepUpdate(3, `तहसील चयन (${tehsilName})`, 'click_accepted', 'तहसील चयन स्वीकार हुआ (Tehsil accepted)');
       }
 
-      this.stepUpdate(3, 'Village Section', 'postback_running', 'Waiting for Chosala radio & village list');
+      this.stepUpdate(3, 'गाँव एवं पद्धति सूची (Village & Method List)', 'postback_running', 'सूची लोड हो रही है...');
       await this.waitForAsyncPostback(4000);
 
-      // Fast reactive confirmation for Chosala radio or village list
       const isConfirmed = await this.page.waitForFunction(() => {
         const bodyText = (document.body ? document.body.innerText : '') || '';
         const radios = document.querySelectorAll('input[type="radio"]');
@@ -542,22 +526,20 @@ export class ApnaKhataExtractor {
       }, { polling: 50, timeout: 4000 }).catch(() => null);
 
       if (isConfirmed) {
-        this.stepUpdate(3, 'Village Section', 'ui_updated', 'Chosala radio & Village section active', true);
+        this.stepUpdate(3, 'गाँव एवं पद्धति सूची (Village & Method List)', 'ui_updated', 'गाँव एवं पद्धति सूची अपडेट हुई (List ready)', true);
         break;
       }
     }
-    await this.takeStepScreenshot('2_tehsil_selected');
   }
 
   /**
    * Step 4: Select "चोसाला पद्धति जमाबंदी" (Chosala Padhti Jamabandi)
    */
   async selectChosalaPadhti() {
-    this.stepUpdate(4, 'Select "चोसाला पद्धति जमाबंदी"', 'action_triggered', 'Locating Chosala radio');
+    this.stepUpdate(4, 'जमाबंदी पद्धति चयन', 'action_triggered', 'चोसाला पद्धति का चयन किया जा रहा है...');
     await this.dismissModals();
 
     const chosen = await this.safeEvaluate(() => {
-      // 1. Direct ID match for Chosala radio
       const radio =
         document.getElementById('ctl00_ContentPlaceHolder1_old_RB') ||
         document.querySelector('input[id*="old_RB"], input[value*="old"]') ||
@@ -584,11 +566,10 @@ export class ApnaKhataExtractor {
     });
 
     if (chosen && chosen.clicked) {
-      this.stepUpdate(4, 'Select "चोसाला पद्धति जमाबंदी"', 'click_accepted', `Radio ID: ${chosen.id}, postback fired`);
+      this.stepUpdate(4, 'जमाबंदी पद्धति चयन', 'click_accepted', 'पद्धति चयन स्वीकार हुआ (Method accepted)');
     }
 
-    this.stepUpdate(4, 'Village Table', 'postback_running', 'Waiting for Village table links to load');
-    // Reactively wait for Village table links to load
+    this.stepUpdate(4, 'गाँव सूची (Village List)', 'postback_running', 'गाँव सूची लोड हो रही है...');
     await this.waitForAsyncPostback(4000);
     const tableReady = await this.page.waitForFunction(() => {
       const villageLinks = document.querySelectorAll('table a, tr a, td a');
@@ -597,11 +578,10 @@ export class ApnaKhataExtractor {
 
     if (tableReady) {
       const linkCount = await this.page.evaluate(() => document.querySelectorAll('table a, tr a, td a').length);
-      this.stepUpdate(4, 'Village Table', 'ui_updated', `Village table loaded with ${linkCount} links`, true);
+      this.stepUpdate(4, 'गाँव सूची (Village List)', 'ui_updated', `गाँव सूची अपडेट हुई (${linkCount} गाँव उपलब्ध)`, true);
     }
 
     await this.dismissModals();
-    await this.takeStepScreenshot('3_chosala_selected');
   }
 
   /**
@@ -609,11 +589,10 @@ export class ApnaKhataExtractor {
    */
   async selectVillage(villageName) {
     const targetBase = villageName.split(/[\s\-]+/)[0].trim(); // e.g. "रायला"
-    this.stepUpdate(5, `Select Village "${villageName}"`, 'action_triggered', `Target: ${villageName}, base: ${targetBase}`);
+    this.stepUpdate(5, `गाँव चयन (${villageName})`, 'action_triggered', `गाँव खोजा जा रहा है: ${villageName}`);
     await this.dismissModals();
 
     for (let attempt = 1; attempt <= 3; attempt++) {
-      // 1. Try finding and clicking the village link directly from the table
       let villageSelected = await this.safeEvaluate((target, base) => {
         const links = Array.from(document.querySelectorAll('table a, div a, tr a, td a, a'));
         const exactMatches = [];
@@ -633,7 +612,6 @@ export class ApnaKhataExtractor {
 
         const matches = exactMatches.length > 0 ? exactMatches : baseMatches;
         if (matches.length > 0) {
-          // Pick the last matching link (latest settlement year)
           const chosen = matches[matches.length - 1];
           chosen.el.click();
           return { success: true, text: chosen.text, count: matches.length };
@@ -643,11 +621,10 @@ export class ApnaKhataExtractor {
       }, villageName.trim(), targetBase);
 
       if (villageSelected && villageSelected.success) {
-        this.stepUpdate(5, `Select Village "${villageName}"`, 'click_accepted', `Clicked village link "${villageSelected.text}", postback fired`);
+        this.stepUpdate(5, `गाँव चयन (${villageName})`, 'click_accepted', `गाँव चुना गया: ${villageSelected.text}`);
       } else {
-        // If not found in current table, click initial letter button (e.g. 'र')
         const initial = targetBase.charAt(0);
-        this.stepUpdate(5, `Initial Hindi Letter "${initial}"`, 'action_triggered', `Filtering village list by letter "${initial}"`);
+        this.stepUpdate(5, `अक्षर खोज (${initial})`, 'action_triggered', `अक्षर '${initial}' के अनुसार सूची फ़िल्टर की जा रही है...`);
         
         await this.safeEvaluate((firstLetter) => {
           const btns = Array.from(document.querySelectorAll('a, button, input[type="button"], span, td'));
@@ -660,14 +637,13 @@ export class ApnaKhataExtractor {
           }
         }, initial);
 
-        this.stepUpdate(5, `Initial Hindi Letter "${initial}"`, 'click_accepted', `Clicked initial letter "${initial}", updating list`);
+        this.stepUpdate(5, `अक्षर खोज (${initial})`, 'click_accepted', `अक्षर '${initial}' चुना गया`);
         await this.waitForAsyncPostback(4000);
         await delay(500);
         continue;
       }
 
-      // Wait for navigation or Nakal Options page to load
-      this.stepUpdate(5, 'Nakal Options Screen', 'postback_running', 'Waiting for Nakal Options page to render');
+      this.stepUpdate(5, 'नकल विकल्प (Nakal Options)', 'postback_running', 'नकल विकल्प लोड हो रहे हैं...');
       await this.waitForAsyncPostback(5000);
       const onNakalPage = await this.page.waitForFunction(() => {
         const bodyText = (document.body ? document.body.innerText : '') || '';
@@ -676,14 +652,13 @@ export class ApnaKhataExtractor {
       }, { polling: 100, timeout: 5000 }).catch(() => null);
 
       if (onNakalPage) {
-        this.stepUpdate(5, 'Nakal Options Screen', 'ui_updated', `Nakal options loaded for village "${villageName}" (जमाबंदी की प्रतिलिपि active)`, true);
+        this.stepUpdate(5, 'नकल विकल्प (Nakal Options)', 'ui_updated', `गाँव "${villageName}" के नकल विकल्प लोड हुए`, true);
         break;
       }
       await delay(500);
     }
 
     await this.dismissModals();
-    await this.takeStepScreenshot('4_village_selected');
   }
 
   /**
@@ -691,11 +666,11 @@ export class ApnaKhataExtractor {
    */
   async selectJamabandiAndKhata() {
     const searchValue = String(this.config.searchValue || '525').trim();
-    this.stepUpdate(6, 'Configuring Nakal Options', 'action_triggered', `Khata target: ${searchValue}`);
+    this.stepUpdate(6, 'नकल विन्यास', 'action_triggered', `खाता संख्या: ${searchValue}`);
     await this.dismissModals();
 
     // 1. Select Radio "जमाबंदी की प्रतिलिपि"
-    this.stepUpdate(6, 'Select "जमाबंदी की प्रतिलिपि"', 'action_triggered', 'Locating Jamabandi radio button');
+    this.stepUpdate(6, 'जमाबंदी नकल विकल्प', 'action_triggered', 'जमाबंदी की प्रतिलिपि का चयन किया जा रहा है...');
     for (let attempt = 1; attempt <= 3; attempt++) {
       const clicked1 = await this.safeEvaluate(() => {
         const jamabandiRadio =
@@ -710,7 +685,7 @@ export class ApnaKhataExtractor {
               __doPostBack(jamabandiRadio.name || jamabandiRadio.id.replace(/_/g, '$'), '');
             }
           }, 0);
-          return { clicked: true, id: jamabandiRadio.id, method: 'direct_id' };
+          return { clicked: true };
         }
 
         const allRadios = Array.from(document.querySelectorAll('input[type="radio"]'));
@@ -726,7 +701,7 @@ export class ApnaKhataExtractor {
                 __doPostBack(r.name || r.id.replace(/_/g, '$'), '');
               }
             }, 0);
-            return { clicked: true, id: r.id, name: r.name, method: 'label_search' };
+            return { clicked: true };
           }
         }
         if (allRadios.length > 0) {
@@ -737,26 +712,25 @@ export class ApnaKhataExtractor {
               __doPostBack(allRadios[0].name || allRadios[0].id.replace(/_/g, '$'), '');
             }
           }, 0);
-          return { clicked: true, id: allRadios[0].id, method: 'first_radio' };
+          return { clicked: true };
         }
         return { clicked: false };
       });
 
       if (clicked1 && clicked1.clicked) {
-        this.stepUpdate(6, 'Select "जमाबंदी की प्रतिलिपि"', 'click_accepted', `Radio ID: ${clicked1.id}, method: ${clicked1.method}`);
+        this.stepUpdate(6, 'जमाबंदी नकल विकल्प', 'click_accepted', 'जमाबंदी नकल विकल्प चुना गया');
       }
 
-      this.stepUpdate(6, 'Nakal Period & Search Modes', 'postback_running', 'Waiting for search modes to load');
+      this.stepUpdate(6, 'खोज माध्यम', 'postback_running', 'खोज विकल्प लोड हो रहे हैं...');
       await this.waitForAsyncPostback(4000);
 
-      // Verify that options refreshed
       const is6aReady = await this.page.waitForFunction(() => {
         const body = (document.body ? document.body.innerText : '') || '';
         return body.includes('खाता से') || document.querySelector('input[id*="RB_Khata"]');
       }, { polling: 50, timeout: 4000 }).catch(() => null);
 
       if (is6aReady) {
-        this.stepUpdate(6, 'Nakal Period & Search Modes', 'ui_updated', 'Search mode radios (खाता से / खसरा से) active', true);
+        this.stepUpdate(6, 'खोज माध्यम', 'ui_updated', 'खोज माध्यम उपलब्ध हैं (खाता से / खसरा से)', true);
         break;
       }
       await delay(400);
@@ -765,7 +739,7 @@ export class ApnaKhataExtractor {
     await this.dismissModals();
 
     // 2. Select Radio "खाता से"
-    this.stepUpdate(6, 'Select "खाता से" Mode', 'action_triggered', 'Locating "खाता से" radio button');
+    this.stepUpdate(6, 'खाता माध्यम', 'action_triggered', 'खाता संख्या द्वारा खोज चुनी जा रही है...');
     for (let attempt = 1; attempt <= 3; attempt++) {
       const clicked2 = await this.safeEvaluate(() => {
         const allLabels = Array.from(document.querySelectorAll('label, td, span'));
@@ -783,7 +757,7 @@ export class ApnaKhataExtractor {
                     __doPostBack(r.name || r.id.replace(/_/g, '$'), '');
                   }
                 }, 0);
-                return { clicked: true, id: r.id, method: 'label_for' };
+                return { clicked: true };
               }
             }
           }
@@ -803,20 +777,19 @@ export class ApnaKhataExtractor {
               __doPostBack(khataRadio.name || khataRadio.id.replace(/_/g, '$'), '');
             }
           }, 0);
-          return { clicked: true, id: khataRadio.id, method: 'radio' };
+          return { clicked: true };
         }
 
         return { clicked: false };
       });
 
       if (clicked2 && clicked2.clicked) {
-        this.stepUpdate(6, 'Select "खाता से" Mode', 'click_accepted', `Method: ${clicked2.method}, postback fired`);
+        this.stepUpdate(6, 'खाता माध्यम', 'click_accepted', 'खाता माध्यम चुना गया');
       }
 
-      this.stepUpdate(6, 'Khata Dropdown List', 'postback_running', 'Waiting for Khata number list to populate');
+      this.stepUpdate(6, 'खाता संख्या सूची', 'postback_running', 'खाता संख्या सूची लोड हो रही है...');
       await this.waitForAsyncPostback(3000);
 
-      // Check if Khata dropdown is populated with numbers
       const is6bReady = await this.page.waitForFunction(() => {
         const khataSelect = document.querySelector('select[id*="DDL_Khata"], select[name*="DDL_Khata"]');
         if (khataSelect && khataSelect.options && khataSelect.options.length > 1) {
@@ -831,7 +804,7 @@ export class ApnaKhataExtractor {
           const s = document.querySelector('select[id*="DDL_Khata"], select[name*="DDL_Khata"]');
           return s ? s.options.length : 0;
         });
-        this.stepUpdate(6, 'Khata Dropdown List', 'ui_updated', `Khata dropdown populated with ${count} numbers`, true);
+        this.stepUpdate(6, 'खाता संख्या सूची', 'ui_updated', `खाता संख्या सूची लोड हुई (${count} खाते उपलब्ध)`, true);
         break;
       }
       await delay(400);
@@ -840,7 +813,7 @@ export class ApnaKhataExtractor {
     await this.dismissModals();
 
     // 3. Select Khata Number in dropdown
-    this.stepUpdate(6, `Select Khata No. "${searchValue}"`, 'action_triggered', `Locating option for Khata "${searchValue}"`);
+    this.stepUpdate(6, `खाता चयन (${searchValue})`, 'action_triggered', `खाता संख्या ${searchValue} खोजी जा रही है...`);
     for (let attempt = 1; attempt <= 3; attempt++) {
       const placed = await this.safeEvaluate((targetKhata) => {
         const cleanTarget = targetKhata.replace(/[^\d]/g, '');
@@ -886,7 +859,6 @@ export class ApnaKhataExtractor {
           }
         }
 
-        // If dropdown wasn't found or set, try text input
         if (!dropdownSet) {
           const khataInput =
             document.getElementById('ctl00_ContentPlaceHolder1_TB_Khata') ||
@@ -903,17 +875,16 @@ export class ApnaKhataExtractor {
           }
         }
 
-        return { dropdownSet, selectedValue, optionsCount: khataSelect ? khataSelect.options.length : 0 };
+        return { dropdownSet, selectedValue };
       }, searchValue);
 
       if (placed && placed.dropdownSet) {
-        this.stepUpdate(6, `Select Khata No. "${searchValue}"`, 'click_accepted', `Selected dropdown value: ${placed.selectedValue}, postback fired`);
+        this.stepUpdate(6, `खाता चयन (${searchValue})`, 'click_accepted', `खाता संख्या ${searchValue} चुनी गई`);
       }
 
-      this.stepUpdate(6, 'Jamabandi Results GridView', 'postback_running', 'Waiting for Kashtkar & Khasra tables to render');
+      this.stepUpdate(6, 'जमाबंदी विवरण', 'postback_running', 'जमाबंदी विवरण लोड हो रहा है...');
       await this.waitForAsyncPostback(5000);
 
-      // 4. Reactively wait for UpdateProgress / Loading Spinner and Table Render
       const tableFound = await this.page.waitForFunction(() => {
         if (typeof Sys !== 'undefined' && Sys.WebForms && Sys.WebForms.PageRequestManager) {
           if (Sys.WebForms.PageRequestManager.getInstance().get_isInAsyncPostBack()) {
@@ -930,13 +901,12 @@ export class ApnaKhataExtractor {
       }, { polling: 100, timeout: 5000 }).catch(() => false);
 
       if (tableFound) {
-        this.stepUpdate(6, 'Jamabandi Results GridView', 'ui_updated', 'Kashtkar & Khasra GridViews rendered on DOM', true);
+        this.stepUpdate(6, 'जमाबंदी विवरण', 'ui_updated', 'काश्तकार एवं खसरा विवरण उपलब्ध है', true);
         break;
       }
       await delay(500);
     }
 
-    // Forcibly hide any lingering loading overlay
     await this.safeEvaluate(() => {
       const up = document.querySelectorAll('[id*="UpdateProgress"], [id*="Progress"], [class*="progress"]');
       up.forEach((el) => {
@@ -946,7 +916,6 @@ export class ApnaKhataExtractor {
 
     await delay(200);
     await this.dismissModals();
-    await this.takeStepScreenshot('5_khata_placed');
   }
 
   /**
@@ -954,7 +923,7 @@ export class ApnaKhataExtractor {
    */
   async extractJamabandiData() {
     const searchValue = String(this.config.searchValue || '525').replace(/[^\d]/g, '').trim() || '525';
-    this.stepUpdate(7, 'Extract Jamabandi Data', 'action_triggered', `Parsing GridViews for Khata "${searchValue}"`);
+    this.stepUpdate(7, 'विवरण संकलन', 'action_triggered', `खाता ${searchValue} का विवरण संकलित किया जा रहा है...`);
 
     const extractedData = await this.safeEvaluate((targetKhata) => {
       const cleanField = (str) => {
@@ -966,7 +935,6 @@ export class ApnaKhataExtractor {
 
       const result = {
         extractedAt: new Date().toISOString(),
-        url: window.location.href,
         district: 'भीलवाड़ा',
         tehsil: 'बनेड़ा',
         village: 'रायला - रायला - रायला',
@@ -977,7 +945,6 @@ export class ApnaKhataExtractor {
         rawText: bodyText,
       };
 
-      // 1. Extract header metadata
       const distMatch = bodyText.match(/जिला\s*[:-]+\s*([^\t\n\r]+)/);
       if (distMatch && !distMatch[1].includes('तहसील') && !distMatch[1].includes('चुनें')) {
         result.district = cleanField(distMatch[1]);
@@ -993,7 +960,6 @@ export class ApnaKhataExtractor {
         result.village = cleanField(villMatch[1]);
       }
 
-      // 2. Direct GridView Extraction (Fast & 100% Accurate)
       const kashtkarTable = document.querySelector('#ctl00_ContentPlaceHolder1_GV_Kashtkar, table[id*="Kashtkar"], table[id*="Owner"]');
       if (kashtkarTable) {
         const rows = Array.from(kashtkarTable.querySelectorAll('tr')).slice(1);
@@ -1032,7 +998,6 @@ export class ApnaKhataExtractor {
         });
       }
 
-      // Fallback 1: Extract Complete Owners / Kashtkaar if direct table not found
       if (result.owners.length === 0) {
         const seenOwnerLines = new Set();
         const allTds = Array.from(document.querySelectorAll('td, th, tr, div'));
@@ -1058,7 +1023,6 @@ export class ApnaKhataExtractor {
         }
       }
 
-      // Fallback 2: Text scanning for owners
       if (result.owners.length === 0) {
         const seenOwnerLines = new Set();
         const lines = bodyText.split('\n').map((l) => l.trim()).filter(Boolean);
@@ -1086,7 +1050,6 @@ export class ApnaKhataExtractor {
         khataNumber: result.khataNumber,
       };
 
-      // Fallback 3: Generic table scanning for Khasra Rows if not found via GridView
       if (result.khasraRecords.length === 0) {
         const tables = Array.from(document.querySelectorAll('table'));
 
@@ -1158,7 +1121,6 @@ export class ApnaKhataExtractor {
 
     const data = extractedData || {
       extractedAt: new Date().toISOString(),
-      url: this.page ? this.page.url() : '',
       district: this.config.district || 'भीलवाड़ा',
       tehsil: this.config.tehsil || 'बनेड़ा',
       village: this.config.village || 'रायला - रायला - रायला',
@@ -1170,30 +1132,17 @@ export class ApnaKhataExtractor {
 
     this.stepUpdate(
       7,
-      'Extract Jamabandi Data',
+      'विवरण संकलन',
       'ui_updated',
-      `Extracted ${data.owners ? data.owners.length : 0} owners & ${data.khasraRecords ? data.khasraRecords.length : 0} khasra records`,
+      `संकलित: ${data.owners ? data.owners.length : 0} काश्तकार एवं ${data.khasraRecords ? data.khasraRecords.length : 0} खसरा विवरण`,
       true
     );
-
-    data.stepScreenshots = this.stepScreenshots || {};
-    if (this.stepScreenshots && this.stepScreenshots['5_table_rendered']) {
-      data.screenshotBase64 = this.stepScreenshots['5_table_rendered'];
-    } else {
-      try {
-        const screenshotBuffer = await this.page.screenshot({
-          type: 'jpeg',
-          quality: 75,
-        });
-        data.screenshotBase64 = `data:image/jpeg;base64,${screenshotBuffer.toString('base64')}`;
-      } catch (e) {}
-    }
 
     return data;
   }
 
   async saveOutputFiles(data) {
-    const { outputDir = './output', saveJson = true, saveCsv = true, savePdf = true, saveScreenshot = true } = this.config.options || {};
+    const { outputDir = './output', saveJson = true, saveCsv = true, savePdf = true, saveScreenshot = false } = this.config.options || {};
     ensureDirectory(outputDir);
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const safeDistrict = (this.config.district || 'भीलवाड़ा').replace(/[^\w\u0900-\u097F]/g, '_');
@@ -1206,7 +1155,6 @@ export class ApnaKhataExtractor {
       const jsonPath = path.join(outputDir, `${baseFilename}.json`);
       fs.writeFileSync(jsonPath, JSON.stringify(data, null, 2), 'utf-8');
       savedFiles.push({ format: 'JSON', path: jsonPath });
-      this.log(`💾 JSON Data saved: ${jsonPath}`);
     }
 
     if (saveCsv) {
@@ -1223,14 +1171,12 @@ export class ApnaKhataExtractor {
       const csvContent = convertToCSV(headers, rows);
       fs.writeFileSync(csvPath, '\uFEFF' + csvContent, 'utf-8');
       savedFiles.push({ format: 'CSV', path: csvPath });
-      this.log(`📊 CSV Details saved: ${csvPath}`);
     }
 
     if (saveScreenshot) {
       const imgPath = path.join(outputDir, `${baseFilename}.png`);
       await this.page.screenshot({ path: imgPath, fullPage: true });
       savedFiles.push({ format: 'Screenshot', path: imgPath });
-      this.log(`📸 Screenshot saved: ${imgPath}`);
     }
 
     if (savePdf) {
@@ -1238,7 +1184,6 @@ export class ApnaKhataExtractor {
         const pdfPath = path.join(outputDir, `${baseFilename}.pdf`);
         await this.page.pdf({ path: pdfPath, format: 'A4', printBackground: true });
         savedFiles.push({ format: 'PDF', path: pdfPath });
-        this.log(`📄 PDF Document saved: ${pdfPath}`);
       } catch (err) {}
     }
 
@@ -1270,32 +1215,31 @@ export class ApnaKhataExtractor {
 
       await this.selectJamabandiAndKhata();
 
-      let screenshotBase64 = this.stepScreenshots['5_khata_placed'];
-      if (!screenshotBase64) {
-        const screenshotBuffer = await this.page.screenshot({
-          type: 'jpeg',
-          quality: 90,
-          fullPage: false,
-        });
-        screenshotBase64 = `data:image/jpeg;base64,${screenshotBuffer.toString('base64')}`;
-        if (!this.stepScreenshots) this.stepScreenshots = {};
-        this.stepScreenshots['5_table_rendered'] = screenshotBase64;
-        this.stepScreenshots['5_khata_placed'] = screenshotBase64;
+      let screenshotBase64 = null;
+      if (this.config.options && this.config.options.saveScreenshot) {
+        try {
+          const screenshotBuffer = await this.page.screenshot({
+            type: 'jpeg',
+            quality: 85,
+            fullPage: false,
+          });
+          screenshotBase64 = `data:image/jpeg;base64,${screenshotBuffer.toString('base64')}`;
+        } catch (e) {}
       }
 
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
 
-      // 7. Extract Jamabandi record (Kashtkaar & Khasra Table) from the active page DOM
+      // 7. Extract Jamabandi record from DOM
       const data = await this.extractJamabandiData();
       data.screenshotBase64 = screenshotBase64;
-      data.stepScreenshots = this.stepScreenshots;
+      data.screenshotRemark = "Screenshots are disabled by default for maximum speed. Available on request or automatically captured upon error.";
+      data.stepScreenshots = {};
       data.detailedSteps = this.detailedSteps || [];
       data.logs = this.logs || [];
       data.executionTimeSeconds = elapsed;
 
-      this.stepUpdate(7, 'Extraction Complete', 'confirmed', `Execution time: ${elapsed}s`, true);
+      this.stepUpdate(7, 'प्रक्रिया पूर्ण (Completed)', 'confirmed', `सफलतापूर्वक प्राप्त (${elapsed}s)`, true);
 
-      // Save output files if configured
       let savedFiles = [];
       try {
         savedFiles = await this.saveOutputFiles(data);
@@ -1304,26 +1248,24 @@ export class ApnaKhataExtractor {
       return { success: true, data, files: savedFiles };
     } catch (error) {
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
-      this.log(`❌ Extraction Error (${elapsed}s): ${error.message}`);
 
       let errorScreenshot = null;
       try {
         if (this.page) {
           const buf = await this.page.screenshot({ type: 'jpeg', quality: 65, fullPage: false });
           errorScreenshot = `data:image/jpeg;base64,${buf.toString('base64')}`;
-          if (!this.stepScreenshots) this.stepScreenshots = {};
-          this.stepScreenshots['error_state'] = errorScreenshot;
         }
       } catch (e) {}
 
       return {
         success: false,
-        error: error.message,
+        error: 'रिकॉर्ड प्राप्त करने में असमर्थ। कृपया पुनः प्रयास करें।',
         data: {
           logs: this.logs || [],
           detailedSteps: this.detailedSteps || [],
           screenshotBase64: errorScreenshot,
-          stepScreenshots: this.stepScreenshots || {},
+          screenshotRemark: errorScreenshot ? "Screenshot automatically captured for error diagnostics." : null,
+          stepScreenshots: {},
           errorAt: new Date().toISOString(),
           executionTimeSeconds: elapsed,
         },

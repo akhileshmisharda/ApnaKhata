@@ -88,14 +88,13 @@ app.get('/', (req, res) => {
   if (req.headers.accept && req.headers.accept.includes('application/json')) {
     return res.status(200).json({
       status: 'online',
-      service: 'Rajasthan Apna Khata Jamabandi Extractor (Cloud Run)',
-      version: '2.5.0-live-stage-stream',
-      browserWarm: Boolean(globalBrowser && globalBrowser.isConnected()),
+      service: 'Rajasthan Jamabandi Service',
+      version: '2.5.0',
       endpoints: {
-        'GET /api/jamabandi': 'Standard JSON Extraction (query params: district, tehsil, village, khata)',
-        'GET /api/jamabandi/stream': '⚡ Real-time Server-Sent Events (SSE) Live Stage Progress Stream',
+        'GET /api/jamabandi': 'JSON Jamabandi Extraction (query params: district, tehsil, village, khata)',
+        'GET /api/jamabandi/stream': '⚡ Real-time SSE Live Stage Progress Stream',
         'POST /api/jamabandi': 'JSON body: { district, tehsil, village, khata }',
-        'POST /api/extract': 'Compatible with web forms',
+        'POST /api/extract': 'Standard web form endpoint',
       },
     });
   }
@@ -106,7 +105,7 @@ app.get('/', (req, res) => {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Apna Khata - Live Cloud Run Extractor</title>
+  <title>राजस्थान जमाबंदी रिकॉर्ड्स (Rajasthan Jamabandi Records)</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <style>
     body { background-color: #f0f3f8; font-family: system-ui, -apple-system, sans-serif; }
@@ -121,8 +120,8 @@ app.get('/', (req, res) => {
 <body class="p-3 p-md-4">
 <div class="container" style="max-width: 960px;">
   <div class="header-box p-4 mb-4 text-center shadow-sm">
-    <h2 class="fw-bold mb-1">🏛️ राजस्थान अपना खाता - लाइव जमाबंदी एक्सट्रेक्टर</h2>
-    <p class="mb-0 text-light opacity-75">Google Cloud Run (asia-south1 Mumbai) • Real-time Stage-by-Stage Stream</p>
+    <h2 class="fw-bold mb-1">🏛️ राजस्थान जमाबंदी रिकॉर्ड्स</h2>
+    <p class="mb-0 text-light opacity-75">लाइव रिकॉर्ड एवं स्थिति ट्रैकर (Live Record & Status Stream)</p>
   </div>
 
   <div class="card card-custom p-4 bg-white mb-4">
@@ -147,7 +146,7 @@ app.get('/', (req, res) => {
       </div>
       <div class="mt-4 text-center">
         <button type="submit" id="submitBtn" class="btn btn-primary btn-lg px-5 shadow">
-          🚀 लाइव एक्सट्रैक्ट करें (Start Live Stream)
+          🚀 लाइव रिकॉर्ड देखें (View Record)
         </button>
       </div>
     </form>
@@ -158,26 +157,26 @@ app.get('/', (req, res) => {
     <div class="d-flex justify-content-between align-items-center mb-3">
       <h5 class="fw-bold text-primary mb-0">
         <span class="spinner-border spinner-border-sm me-2"></span>
-        लाइव स्टेज एवं UI ट्रैकर (Real-time Live Stages & UI Updates)
+        स्थिति एवं प्रगति ट्रैकर (Status & Progress Tracker)
       </h5>
       <span id="liveTimer" class="badge bg-secondary p-2">⏱️ 0s बीत चुके</span>
     </div>
 
     <div class="mb-3">
-      <div id="stage1" class="step-item"><span class="me-2">🌐</span> 1. पोर्टल कनेक्शन एवं पॉपअप बंद (Connecting & Dismissing Popups)</div>
+      <div id="stage1" class="step-item"><span class="me-2">🌐</span> 1. पोर्टल कनेक्शन (Connecting to Portal)</div>
       <div id="stage2" class="step-item"><span class="me-2">📍</span> 2. जिला चयन: <span class="distLabel">भीलवाड़ा</span> (District Selected)</div>
       <div id="stage3" class="step-item"><span class="me-2">🏛️</span> 3. तहसील चयन: <span class="tehsilLabel">बनेड़ा</span> (Tehsil Selected)</div>
-      <div id="stage4" class="step-item"><span class="me-2">📑</span> 4. "चोसाला पद्धति जमाबंदी" चयन (Chosala Padhti Active)</div>
+      <div id="stage4" class="step-item"><span class="me-2">📑</span> 4. जमाबंदी पद्धति चयन (Jamabandi Method Selected)</div>
       <div id="stage5" class="step-item"><span class="me-2">🌾</span> 5. गाँव चयन: <span class="villageLabel">रायला</span> (Village Selected)</div>
-      <div id="stage6" class="step-item"><span class="me-2">🎯</span> 6. खाता चयन (<span class="khataLabel">525</span>) एवं तालिका लोड (Khata Placed & Table Rendered)</div>
-      <div id="stage7" class="step-item"><span class="me-2">📊</span> 7. काश्तकार व खसरा विवरण विश्लेषण (Complete Data Extracted)</div>
+      <div id="stage6" class="step-item"><span class="me-2">🎯</span> 6. खाता चयन (<span class="khataLabel">525</span>) एवं विवरण लोड (Khata Selected & Loaded)</div>
+      <div id="stage7" class="step-item"><span class="me-2">📊</span> 7. काश्तकार व खसरा विवरण संकलन (Record Compiled)</div>
     </div>
 
     <div class="mb-2">
-      <small class="fw-bold text-muted text-uppercase">🔍 लाइव सब-स्टेप्स और DOM/UI स्थिति (Live Action & UI Verification Log):</small>
+      <small class="fw-bold text-muted text-uppercase">🔍 लाइव स्थिति विवरण (Live Activity Log):</small>
     </div>
     <div class="terminal-box" id="liveConsole">
-      <div>[0.0s] ⚡ Initializing Live Stream from Google Cloud Run...</div>
+      <div>[0.0s] ⚡ रिकॉर्ड लोड करने की प्रक्रिया प्रारंभ हो रही है...</div>
     </div>
   </div>
 
@@ -368,7 +367,7 @@ app.get('/api/jamabandi/stream', async (req, res) => {
   sendEvent({
     type: 'progress',
     time: new Date().toLocaleTimeString('hi-IN', { hour12: false }),
-    message: `🚀 Extraction initialized for District: "${district}", Tehsil: "${tehsil}", Village: "${village}", Khata: "${khata}"`,
+    message: `रिकॉर्ड खोज प्रक्रिया प्रारंभ (Initializing search): जिला: "${district}", तहसील: "${tehsil}", गाँव: "${village}", खाता: "${khata}"`,
   });
 
   try {
@@ -388,7 +387,7 @@ app.get('/api/jamabandi/stream', async (req, res) => {
         headless: true,
         saveJson: false,
         saveCsv: false,
-        saveScreenshot: false,
+        saveScreenshot: req.query.includeScreenshot === 'true',
         savePdf: false,
         outputDir: './output',
       },
@@ -407,14 +406,14 @@ app.get('/api/jamabandi/stream', async (req, res) => {
       sendEvent({
         type: 'error',
         success: false,
-        message: result.error || 'Failed to extract Jamabandi',
+        message: result.error || 'रिकॉर्ड प्राप्त करने में असमर्थ।',
       });
     }
   } catch (err) {
     sendEvent({
       type: 'error',
       success: false,
-      message: err.message,
+      message: 'अनपेक्षित त्रुटि। कृपया पुनः प्रयास करें।',
     });
   } finally {
     res.end();
@@ -431,8 +430,9 @@ async function handleJamabandiExtraction(req, res) {
   const village = (req.query.village || req.body.village || 'रायला - रायला - रायला').trim();
   const rawKhata = req.query.khata || req.body.khata || req.query.searchValue || req.body.searchValue || '525';
   const khata = String(rawKhata).replace(/[^\d]/g, '').trim() || '525';
+  const includeScreenshot = req.query.includeScreenshot === 'true' || req.body.includeScreenshot === true;
 
-  console.log(`\n📥 [Cloud Run Request] District: "${district}", Tehsil: "${tehsil}", Village: "${village}", Khata: "${khata}"`);
+  console.log(`\n📥 [Request] District: "${district}", Tehsil: "${tehsil}", Village: "${village}", Khata: "${khata}"`);
 
   try {
     const browser = await getBrowser();
@@ -448,7 +448,7 @@ async function handleJamabandiExtraction(req, res) {
         headless: true,
         saveJson: false,
         saveCsv: false,
-        saveScreenshot: false,
+        saveScreenshot: includeScreenshot,
         savePdf: false,
         outputDir: './output',
       },
@@ -485,8 +485,8 @@ async function handleJamabandiExtraction(req, res) {
           totalKhasraCount: result.data.khasraRecords ? result.data.khasraRecords.length : 0,
           totalRakbaHectare: totalRakba > 0 ? totalRakba.toFixed(4) : null,
           khasraRecords: result.data.khasraRecords || [],
+          screenshotRemark: result.data.screenshotRemark || "Screenshots are omitted by default for performance. Available on demand or automatically captured upon error.",
           screenshotBase64: result.data.screenshotBase64 || null,
-          stepScreenshots: result.data.stepScreenshots || {},
           detailedSteps: result.data.detailedSteps || [],
           logs: result.data.logs || [],
           extractedAt: result.data.extractedAt || new Date().toISOString(),
@@ -496,23 +496,23 @@ async function handleJamabandiExtraction(req, res) {
       res.status(500).json({
         success: false,
         status: 'error',
-        message: result.error || 'Failed to extract Jamabandi record',
+        message: result.error || 'रिकॉर्ड प्राप्त करने में असमर्थ।',
         executionTimeSeconds: result.data ? result.data.executionTimeSeconds : null,
         data: {
           detailedSteps: result.data ? result.data.detailedSteps || [] : [],
-          logs: result.data ? result.data.logs || [] : [],
+          screenshotRemark: result.data ? result.data.screenshotRemark : null,
           screenshotBase64: result.data ? result.data.screenshotBase64 || null : null,
-          stepScreenshots: result.data ? result.data.stepScreenshots || {} : {},
+          logs: result.data ? result.data.logs || [] : [],
           errorAt: new Date().toISOString(),
         },
       });
     }
   } catch (err) {
-    console.error('Cloud Run Handler Error:', err);
+    console.error('Request Handler Catch:', err.message);
     res.status(500).json({
       success: false,
       status: 'error',
-      message: err.message,
+      message: 'अनपेक्षित त्रुटि। कृपया पुनः प्रयास करें।',
     });
   }
 }
@@ -523,6 +523,6 @@ app.post('/api/extract', handleJamabandiExtraction);
 
 // Bind to 0.0.0.0 on Cloud Run PORT
 app.listen(PORT, '0.0.0.0', async () => {
-  console.log(`🚀 Apna Khata Service listening on 0.0.0.0:${PORT} (Cloud Run Ready)`);
+  console.log(`🚀 Service ready on port ${PORT}`);
   getBrowser().catch(() => {});
 });
