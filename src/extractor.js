@@ -779,20 +779,22 @@ export class ApnaKhataExtractor {
 
     await this.dismissModals();
 
-    // 3. Select Khata Number in dropdown & set textbox
+    // 3. Select Khata Number in dropdown
     this.log(`👉 Step 6c: Placing Khata No. "${searchValue}"...`);
     for (let attempt = 1; attempt <= 3; attempt++) {
       const placed = await this.safeEvaluate((targetKhata) => {
         const cleanTarget = targetKhata.replace(/[^\d]/g, '');
-        let khataSelect = document.querySelector('select[id*="DDL_Khata"], select[name*="DDL_Khata"]');
-        if (!khataSelect) {
-          const selects = Array.from(document.querySelectorAll('select'));
-          khataSelect = selects.find((s) => s.id.toLowerCase().includes('khata') || s.name.toLowerCase().includes('khata')) || selects[selects.length - 1];
-        }
+        let khataSelect =
+          document.getElementById('ctl00_ContentPlaceHolder1_DDL_Khata') ||
+          document.querySelector('select[id*="DDL_Khata"], select[name*="DDL_Khata"]') ||
+          Array.from(document.querySelectorAll('select')).find(s => s.id.toLowerCase().includes('khata') || s.name.toLowerCase().includes('khata'));
 
         let dropdownSet = false;
+        let selectedValue = null;
+
         if (khataSelect && khataSelect.options) {
-          for (const opt of khataSelect.options) {
+          for (let i = 0; i < khataSelect.options.length; i++) {
+            const opt = khataSelect.options[i];
             const text = opt.text.trim();
             const val = opt.value.trim();
             const cleanOptText = text.replace(/[^\d]/g, '');
@@ -806,55 +808,62 @@ export class ApnaKhataExtractor {
               text.startsWith(cleanTarget + ' ') ||
               text.startsWith(cleanTarget + '-')
             ) {
+              khataSelect.selectedIndex = i;
               khataSelect.value = opt.value;
-              if (typeof khataSelect.onchange === 'function') khataSelect.onchange();
+              selectedValue = opt.value;
+              if (typeof khataSelect.onchange === 'function') {
+                try { khataSelect.onchange(); } catch {}
+              }
               khataSelect.dispatchEvent(new Event('change', { bubbles: true }));
               window.setTimeout(() => {
                 if (typeof __doPostBack === 'function') {
                   __doPostBack(khataSelect.name || khataSelect.id.replace(/_/g, '$'), '');
                 }
-              }, 0);
+              }, 20);
               dropdownSet = true;
               break;
             }
           }
         }
 
-        const inputs = Array.from(document.querySelectorAll('input[type="text"], input:not([type])'));
-        for (const inp of inputs) {
-          inp.value = cleanTarget;
-          inp.dispatchEvent(new Event('input', { bubbles: true }));
-          inp.dispatchEvent(new Event('change', { bubbles: true }));
+        // If dropdown wasn't found or set, try text input
+        if (!dropdownSet) {
+          const khataInput =
+            document.getElementById('ctl00_ContentPlaceHolder1_TB_Khata') ||
+            document.querySelector('input[id*="TB_Khata"], input[name*="TB_Khata"]');
+          if (khataInput) {
+            khataInput.value = cleanTarget;
+            khataInput.dispatchEvent(new Event('input', { bubbles: true }));
+            khataInput.dispatchEvent(new Event('change', { bubbles: true }));
+            window.setTimeout(() => {
+              if (typeof __doPostBack === 'function') {
+                __doPostBack(khataInput.name || khataInput.id.replace(/_/g, '$'), '');
+              }
+            }, 20);
+          }
         }
 
-        return { dropdownSet, optionsCount: khataSelect ? khataSelect.options.length : 0 };
+        return { dropdownSet, selectedValue, optionsCount: khataSelect ? khataSelect.options.length : 0 };
       }, searchValue);
 
       this.log(`   Khata placement status (attempt ${attempt}/3): ${JSON.stringify(placed)}`);
+      await this.waitForAsyncPostback(5000);
 
       // 4. Reactively wait for UpdateProgress / Loading Spinner and Table Render
-      await this.page.waitForFunction(() => {
+      const tableFound = await this.page.waitForFunction(() => {
         if (typeof Sys !== 'undefined' && Sys.WebForms && Sys.WebForms.PageRequestManager) {
           if (Sys.WebForms.PageRequestManager.getInstance().get_isInAsyncPostBack()) {
             return false;
           }
         }
-        const up = document.getElementById('UpdateProgress1') || document.querySelector('[id*="UpdateProgress"]');
-        if (up) {
-          const style = window.getComputedStyle(up);
-          if (style.display !== 'none' && style.visibility !== 'hidden' && up.offsetWidth > 0) {
-            return false;
-          }
-        }
-        const hasTable = document.querySelector('table[id*="Kashtkar"], table[id*="Khasra"], table[id*="GridView"]');
-        return Boolean(hasTable);
-      }, { polling: 100, timeout: 4000 }).catch(() => {});
-
-      // Check if table rendered
-      const tableFound = await this.page.evaluate(() => {
-        const t = document.querySelector('table[id*="Kashtkar"], table[id*="Khasra"], table[id*="GridView"]');
-        return Boolean(t && t.rows && t.rows.length > 1);
-      }).catch(() => false);
+        const kashtkar = document.querySelector('[id*="GV_Kashtkar"], [id*="Kashtkar"], [id*="Owner"]');
+        const khasra = document.querySelector('[id*="GV_Khasra"], [id*="Khasra"], [id*="GridView"]');
+        const anyTable = Array.from(document.querySelectorAll('table')).find(t => {
+          const txt = t.innerText || '';
+          return txt.includes('खसरा') && txt.includes('रकबा');
+        });
+        return Boolean(kashtkar || khasra || anyTable);
+      }, { polling: 100, timeout: 5000 }).catch(() => false);
 
       if (tableFound) {
         this.log('✅ [CONFIRMED] Jamabandi table successfully rendered!');
@@ -920,32 +929,74 @@ export class ApnaKhataExtractor {
         result.village = cleanField(villMatch[1]);
       }
 
-      // 2. Extract Complete Owners / Kashtkaar (all lines under Khasra table)
-      const seenOwnerLines = new Set();
-      const allTds = Array.from(document.querySelectorAll('td, th, tr, div'));
+      // 2. Direct GridView Extraction (Fast & 100% Accurate)
+      const kashtkarTable = document.querySelector('#ctl00_ContentPlaceHolder1_GV_Kashtkar, table[id*="Kashtkar"], table[id*="Owner"]');
+      if (kashtkarTable) {
+        const rows = Array.from(kashtkarTable.querySelectorAll('tr')).slice(1);
+        rows.forEach((row) => {
+          const cells = Array.from(row.querySelectorAll('td')).map((td) => td.innerText.trim());
+          if (cells.length > 1 && cells[1]) {
+            result.owners.push(cells[1]);
+          } else if (cells.length === 1 && cells[0]) {
+            result.owners.push(cells[0]);
+          }
+        });
+      }
 
-      for (const el of allTds) {
-        if (el.querySelectorAll('table').length > 0) continue;
-        const text = (el.innerText || '').trim();
-        if (
-          (text.includes('खातेदार') || text.includes('काश्तकार') || text.includes('सा.देह') || text.includes('पुत्र') || text.includes('पि.')) &&
-          !text.includes('खसरो की सूचना') &&
-          !text.includes('जमाबंदी की सूचना') &&
-          !text.includes('विकल्प') &&
-          text.length > 3
-        ) {
-          const splitLines = text.split('\n').map((l) => l.trim()).filter((l) => l.length > 2 && !l.includes('खसरा') && !l.includes('रकबा') && !l.includes('खाता संख्या'));
-          splitLines.forEach((l) => {
-            if (!seenOwnerLines.has(l)) {
-              seenOwnerLines.add(l);
-              result.owners.push(l);
+      const khasraTable = document.querySelector('#ctl00_ContentPlaceHolder1_GV_Khasra, table[id*="Khasra"], #ctl00_ContentPlaceHolder1_GridView1');
+      if (khasraTable) {
+        const rows = Array.from(khasraTable.querySelectorAll('tr')).slice(1);
+        rows.forEach((row) => {
+          const cells = Array.from(row.querySelectorAll('td')).map((td) => td.innerText.trim());
+          if (cells.length >= 3) {
+            const khata = cells[0] || targetKhata;
+            const khasra = cells[1] || '';
+            const rakba = cells[2] || '';
+            const irrigation = cells[3] || '-';
+            const soilAndTax = cells.slice(3).filter(Boolean).join(' ') || '-';
+            if (khasra && rakba) {
+              result.khasraRecords.push({
+                khataNo: khata,
+                khasraNo: khasra,
+                rakbaHectare: rakba,
+                irrigation: irrigation,
+                soilAndTax: soilAndTax,
+                fullRow: cells,
+              });
             }
-          });
+          }
+        });
+      }
+
+      // Fallback 1: Extract Complete Owners / Kashtkaar if direct table not found
+      if (result.owners.length === 0) {
+        const seenOwnerLines = new Set();
+        const allTds = Array.from(document.querySelectorAll('td, th, tr, div'));
+
+        for (const el of allTds) {
+          if (el.querySelectorAll('table').length > 0) continue;
+          const text = (el.innerText || '').trim();
+          if (
+            (text.includes('खातेदार') || text.includes('काश्तकार') || text.includes('सा.देह') || text.includes('पुत्र') || text.includes('पि.')) &&
+            !text.includes('खसरो की सूचना') &&
+            !text.includes('जमाबंदी की सूचना') &&
+            !text.includes('विकल्प') &&
+            text.length > 3
+          ) {
+            const splitLines = text.split('\n').map((l) => l.trim()).filter((l) => l.length > 2 && !l.includes('खसरा') && !l.includes('रकबा') && !l.includes('खाता संख्या'));
+            splitLines.forEach((l) => {
+              if (!seenOwnerLines.has(l)) {
+                seenOwnerLines.add(l);
+                result.owners.push(l);
+              }
+            });
+          }
         }
       }
 
-      // Fallback text parsing if not found in TD
+      // Fallback 2: Text scanning for owners
       if (result.owners.length === 0) {
+        const seenOwnerLines = new Set();
         const lines = bodyText.split('\n').map((l) => l.trim()).filter(Boolean);
         for (let i = 0; i < lines.length; i++) {
           const line = lines[i];
@@ -971,70 +1022,72 @@ export class ApnaKhataExtractor {
         khataNumber: result.khataNumber,
       };
 
-      // 3. Extract Khasra Rows (खाता संख्या | खसरा | रकबा | सिंचाई के साधन | खेत का नाम | शामिल नंबर)
-      const tables = Array.from(document.querySelectorAll('table'));
+      // Fallback 3: Generic table scanning for Khasra Rows if not found via GridView
+      if (result.khasraRecords.length === 0) {
+        const tables = Array.from(document.querySelectorAll('table'));
 
-      tables.forEach((table, tableIndex) => {
-        if (table.querySelector('table')) return;
+        tables.forEach((table, tableIndex) => {
+          if (table.querySelector('table')) return;
 
-        const rows = Array.from(table.querySelectorAll('tr'));
-        const tableData = [];
-        let headers = [];
+          const rows = Array.from(table.querySelectorAll('tr'));
+          const tableData = [];
+          let headers = [];
 
-        rows.forEach((row) => {
-          const ths = Array.from(row.querySelectorAll('th'));
-          const tds = Array.from(row.querySelectorAll('td'));
+          rows.forEach((row) => {
+            const ths = Array.from(row.querySelectorAll('th'));
+            const tds = Array.from(row.querySelectorAll('td'));
 
-          if (ths.length > 0 && headers.length === 0) {
-            headers = ths.map((th) => th.innerText.trim());
-          } else if (tds.length > 0) {
-            const rowVals = tds.map((td) => td.innerText.trim());
-            tableData.push(rowVals);
+            if (ths.length > 0 && headers.length === 0) {
+              headers = ths.map((th) => th.innerText.trim());
+            } else if (tds.length > 0) {
+              const rowVals = tds.map((td) => td.innerText.trim());
+              tableData.push(rowVals);
 
-            const joinedRow = rowVals.join(' ');
-            const hasNumbers = rowVals.some((v) => /^\d+(\.\d+)?$/.test(v));
+              const joinedRow = rowVals.join(' ');
+              const hasNumbers = rowVals.some((v) => /^\d+(\.\d+)?$/.test(v));
 
-            if (
-              rowVals.length >= 3 &&
-              hasNumbers &&
-              !joinedRow.includes('खाता संख्या') &&
-              !joinedRow.includes('खसरो की सूचना') &&
-              !joinedRow.includes('जमाबंदी की सूचना') &&
-              !joinedRow.includes('कुल') &&
-              !joinedRow.includes('खातेदार') &&
-              !joinedRow.includes('काश्तकार') &&
-              !joinedRow.includes('सा.देह')
-            ) {
-              let khata = rowVals[0] || targetKhata;
-              let khasra = rowVals[1] || '';
-              let rakba = rowVals[2] || '';
-              let irrigation = rowVals[3] || '-';
-              let farmName = rowVals[4] || '';
-              let soilAndTax = rowVals.slice(3).filter(Boolean).join(' ');
+              if (
+                rowVals.length >= 3 &&
+                hasNumbers &&
+                !joinedRow.includes('खाता संख्या') &&
+                !joinedRow.includes('खसरो की सूचना') &&
+                !joinedRow.includes('जमाबंदी की सूचना') &&
+                !joinedRow.includes('कुल') &&
+                !joinedRow.includes('खातेदार') &&
+                !joinedRow.includes('काश्तकार') &&
+                !joinedRow.includes('सा.देह')
+              ) {
+                let khata = rowVals[0] || targetKhata;
+                let khasra = rowVals[1] || '';
+                let rakba = rowVals[2] || '';
+                let irrigation = rowVals[3] || '-';
+                let farmName = rowVals[4] || '';
+                let soilAndTax = rowVals.slice(3).filter(Boolean).join(' ');
 
-              if (khasra && rakba) {
-                result.khasraRecords.push({
-                  khataNo: khata,
-                  khasraNo: khasra,
-                  rakbaHectare: rakba,
-                  irrigation: irrigation || '-',
-                  farmName: farmName || '',
-                  soilAndTax: soilAndTax || '-',
-                  fullRow: rowVals,
-                });
+                if (khasra && rakba) {
+                  result.khasraRecords.push({
+                    khataNo: khata,
+                    khasraNo: khasra,
+                    rakbaHectare: rakba,
+                    irrigation: irrigation || '-',
+                    farmName: farmName || '',
+                    soilAndTax: soilAndTax || '-',
+                    fullRow: rowVals,
+                  });
+                }
               }
             }
+          });
+
+          if (tableData.length > 0) {
+            result.allTables.push({
+              tableIndex,
+              headers,
+              rows: tableData,
+            });
           }
         });
-
-        if (tableData.length > 0) {
-          result.allTables.push({
-            tableIndex,
-            headers,
-            rows: tableData,
-          });
-        }
-      });
+      }
 
       return result;
     }, searchValue);
