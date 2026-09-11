@@ -546,11 +546,12 @@ export class ApnaKhataExtractor {
 
     this.log(`   Chosala radio selection: ${JSON.stringify(chosen)}`);
 
-    // Reactively wait for Village table links to load (50ms polling, max 4s)
+    // Reactively wait for Village table links to load
+    await this.waitForAsyncPostback(4000);
     await this.page.waitForFunction(() => {
       const villageLinks = document.querySelectorAll('table a, tr a, td a');
       return villageLinks.length > 5;
-    }, { polling: 50, timeout: 4000 }).catch(() => {});
+    }, { polling: 50, timeout: 5000 }).catch(() => {});
 
     await this.dismissModals();
     await this.takeStepScreenshot('3_chosala_selected');
@@ -561,84 +562,78 @@ export class ApnaKhataExtractor {
    */
   async selectVillage(villageName) {
     this.log(`🌾 5. Selecting Village: "${villageName}" (latest settlement)...`);
+    await this.dismissModals();
 
-    try {
-      const initial = villageName.trim().charAt(0);
-      await this.safeEvaluate((firstLetter) => {
-        const links = Array.from(document.querySelectorAll('a, button, input[type="button"], span'));
+    const targetBase = villageName.split(/[\s\-]+/)[0].trim(); // e.g. "रायला"
+
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      // 1. Try finding and clicking the village link directly from the table
+      let villageSelected = await this.safeEvaluate((target, base) => {
+        const links = Array.from(document.querySelectorAll('table a, div a, tr a, td a, a'));
+        const exactMatches = [];
+        const baseMatches = [];
+
         for (const link of links) {
-          const text = (link.innerText || link.getAttribute('value') || '').trim();
-          if (text === firstLetter || text === 'र' || text === 'R') {
-            link.click();
-            break;
+          const text = (link.innerText || link.textContent || '').trim();
+          const href = link.getAttribute('href') || '';
+          if (href.includes('DistTehVillRpt') || href.includes('VillSelAll')) continue;
+
+          if (text === target || text.includes(target)) {
+            exactMatches.push({ el: link, text });
+          } else if (text.startsWith(base) || text.includes(base)) {
+            baseMatches.push({ el: link, text });
           }
         }
-      }, initial);
-    } catch {}
 
-    await delay(300);
-
-    let villageSelected = await this.safeEvaluate((target) => {
-      const cleanTarget = target.trim();
-      const firstWord = cleanTarget.split(/[\s\-]+/)[0];
-      const links = Array.from(document.querySelectorAll('table a, div a, tr a, td a, a'));
-      
-      const exactMatches = [];
-      const prefixMatches = [];
-
-      for (const link of links) {
-        const text = (link.innerText || '').trim();
-        const href = link.getAttribute('href') || '';
-        if (href.includes('DistTehVillRpt')) continue;
-
-        if (text === cleanTarget || text.includes(cleanTarget)) {
-          exactMatches.push({ el: link, text });
-        } else if (text.startsWith(firstWord) || (firstWord && text.includes(firstWord))) {
-          prefixMatches.push({ el: link, text });
+        const matches = exactMatches.length > 0 ? exactMatches : baseMatches;
+        if (matches.length > 0) {
+          // Pick the last matching link (latest settlement year)
+          const chosen = matches[matches.length - 1];
+          chosen.el.click();
+          return { success: true, text: chosen.text, count: matches.length };
         }
-      }
 
-      if (exactMatches.length > 0) {
-        const last = exactMatches[exactMatches.length - 1];
-        last.el.click();
-        return { type: 'exact_link_last', text: last.text, count: exactMatches.length };
-      }
+        return { success: false };
+      }, villageName.trim(), targetBase);
 
-      if (prefixMatches.length > 0) {
-        const last = prefixMatches[prefixMatches.length - 1];
-        last.el.click();
-        return { type: 'prefix_link_last', text: last.text, count: prefixMatches.length };
-      }
+      this.log(`   Attempt ${attempt}/3 -> Village search: ${JSON.stringify(villageSelected)}`);
 
-      const selects = Array.from(document.querySelectorAll('select'));
-      for (const select of selects) {
-        const optMatches = [];
-        for (const opt of select.options) {
-          const text = opt.text.trim();
-          if (text === cleanTarget || text.startsWith(firstWord)) {
-            optMatches.push(opt);
+      if (!villageSelected || !villageSelected.success) {
+        // If not found in current table, click initial letter button (e.g. 'र')
+        this.log(`   Clicking initial Hindi letter button for "${targetBase}"...`);
+        const initial = targetBase.charAt(0);
+        await this.safeEvaluate((firstLetter) => {
+          const btns = Array.from(document.querySelectorAll('a, button, input[type="button"], span, td'));
+          for (const btn of btns) {
+            const text = (btn.innerText || btn.getAttribute('value') || '').trim();
+            if (text === firstLetter || text === 'र' || text === 'R') {
+              btn.click();
+              break;
+            }
           }
-        }
-        if (optMatches.length > 0) {
-          const lastOpt = optMatches[optMatches.length - 1];
-          select.value = lastOpt.value;
-          select.dispatchEvent(new Event('change', { bubbles: true }));
-          return { type: 'select_last', text: lastOpt.text, count: optMatches.length };
-        }
+        }, initial);
+
+        await this.waitForAsyncPostback(4000);
+        await delay(500);
+        continue;
       }
 
-      return null;
-    }, villageName);
+      // Wait for navigation or Nakal Options page to load
+      await this.waitForAsyncPostback(5000);
+      const onNakalPage = await this.page.waitForFunction(() => {
+        const bodyText = (document.body ? document.body.innerText : '') || '';
+        const hasJamabandi = document.querySelector('[id*="RB_Jamabandi"], input[value*="Jamabandi"]');
+        return Boolean(hasJamabandi) || bodyText.includes('जमाबंदी की प्रतिलिपि') || bodyText.includes('नकल');
+      }, { polling: 100, timeout: 5000 }).catch(() => null);
 
-    if (villageSelected) {
-      this.log(`✅ [CONFIRMED] Selected Village: "${villageSelected.text}"`);
+      if (onNakalPage) {
+        this.log(`✅ [CONFIRMED] Nakal Options page loaded for village "${villageName}"!`);
+        break;
+      }
+      await delay(500);
     }
 
-    // Fast reactive wait for Nakal Options page
-    await Promise.race([
-      this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 8000 }).catch(() => {}),
-      this.page.waitForSelector('input[type="radio"], select, table', { timeout: 8000 }).catch(() => {}),
-    ]);
+    await this.dismissModals();
     await this.takeStepScreenshot('4_village_selected');
   }
 
@@ -655,12 +650,27 @@ export class ApnaKhataExtractor {
     this.log('👉 Step 6a: Selecting "जमाबंदी की प्रतिलिपि" radio...');
     for (let attempt = 1; attempt <= 3; attempt++) {
       const clicked1 = await this.safeEvaluate(() => {
+        const jamabandiRadio =
+          document.getElementById('ctl00_ContentPlaceHolder1_RB_Jamabandi') ||
+          document.querySelector('input[id*="RB_Jamabandi"], input[id*="Jamabandi"]');
+
+        if (jamabandiRadio) {
+          jamabandiRadio.checked = true;
+          jamabandiRadio.click();
+          window.setTimeout(() => {
+            if (typeof __doPostBack === 'function') {
+              __doPostBack(jamabandiRadio.name || jamabandiRadio.id.replace(/_/g, '$'), '');
+            }
+          }, 0);
+          return { clicked: true, id: jamabandiRadio.id, method: 'direct_id' };
+        }
+
         const allRadios = Array.from(document.querySelectorAll('input[type="radio"]'));
         for (const r of allRadios) {
           const p = (r.parentElement ? r.parentElement.innerText : '').trim();
           const lbl = document.querySelector(`label[for="${r.id}"]`);
           const lblText = lbl ? (lbl.innerText || '').trim() : '';
-          if (p.includes('जमाबंदी की प्रतिलिपि') || lblText.includes('जमाबंदी की प्रतिलिपि') || r.id.toLowerCase().includes('khate_se')) {
+          if (p.includes('जमाबंदी की प्रतिलिपि') || lblText.includes('जमाबंदी की प्रतिलिपि') || r.id.toLowerCase().includes('jamabandi')) {
             r.checked = true;
             r.click();
             window.setTimeout(() => {
@@ -668,7 +678,7 @@ export class ApnaKhataExtractor {
                 __doPostBack(r.name || r.id.replace(/_/g, '$'), '');
               }
             }, 0);
-            return { clicked: true, id: r.id, name: r.name };
+            return { clicked: true, id: r.id, name: r.name, method: 'label_search' };
           }
         }
         if (allRadios.length > 0) {
@@ -679,22 +689,19 @@ export class ApnaKhataExtractor {
               __doPostBack(allRadios[0].name || allRadios[0].id.replace(/_/g, '$'), '');
             }
           }, 0);
-          return { clicked: true, id: allRadios[0].id, fallback: true };
+          return { clicked: true, id: allRadios[0].id, method: 'first_radio' };
         }
         return { clicked: false };
       });
 
       this.log(`   Step 6a status: ${JSON.stringify(clicked1)}`);
-      await this.waitForAsyncPostback(3000);
+      await this.waitForAsyncPostback(4000);
 
-      // Check if "खाता से" or "वर्तमान नकल" options appeared
-      const is6aReady = await this.safeEvaluate(() => {
-        const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
-        return radios.some((r) => {
-          const p = (r.parentElement ? r.parentElement.innerText : '').trim();
-          return p.includes('खाता से') || p.includes('वर्तमान नकल') || r.id.toLowerCase().includes('khata');
-        });
-      });
+      // Verify that options refreshed
+      const is6aReady = await this.page.waitForFunction(() => {
+        const body = (document.body ? document.body.innerText : '') || '';
+        return body.includes('खाता से') || document.querySelector('input[id*="RB_Khata"]');
+      }, { polling: 50, timeout: 4000 }).catch(() => null);
 
       if (is6aReady) {
         this.log('✅ [CONFIRMED] "जमाबंदी की प्रतिलिपि" active!');
@@ -899,13 +906,19 @@ export class ApnaKhataExtractor {
 
       // 1. Extract header metadata
       const distMatch = bodyText.match(/जिला\s*[:-]+\s*([^\t\n\r]+)/);
-      if (distMatch) result.district = cleanField(distMatch[1]);
+      if (distMatch && !distMatch[1].includes('तहसील') && !distMatch[1].includes('चुनें')) {
+        result.district = cleanField(distMatch[1]);
+      }
 
       const tehMatch = bodyText.match(/तहसील\s*[:-]+\s*([^\t\n\r]+)/);
-      if (tehMatch) result.tehsil = cleanField(tehMatch[1]);
+      if (tehMatch && !tehMatch[1].includes('गाँव') && !tehMatch[1].includes('चुनें')) {
+        result.tehsil = cleanField(tehMatch[1]);
+      }
 
       const villMatch = bodyText.match(/(?:गाँव|पटवार)\s*[:-]+\s*([^\t\n\r]+)/);
-      if (villMatch) result.village = cleanField(villMatch[1]);
+      if (villMatch && !villMatch[1].includes('चुनें')) {
+        result.village = cleanField(villMatch[1]);
+      }
 
       // 2. Extract Complete Owners / Kashtkaar (all lines under Khasra table)
       const seenOwnerLines = new Set();
