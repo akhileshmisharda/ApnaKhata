@@ -5,9 +5,10 @@
   "main": "src/index.js",
   "type": "module",
   "scripts": {
-    "start": "node src/index.js",
+    "start": "node src/server.js",
+    "cli": "node src/index.js",
     "interactive": "node src/interactive.js",
-    "server": "node api.js"
+    "server": "node src/server.js"
   },
   "keywords": [
     "puppeteer",
@@ -20,9 +21,10 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "express": "^4.19.2",
+    "express": "^4.22.2",
     "puppeteer": "^22.0.0",
     "puppeteer-extra": "^3.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2"
   }
+
 }

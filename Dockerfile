@@ -1,8 +1,9 @@
-FROM node:20-slim
+# Use official Node.js LTS slim image
+FROM node:20-bullseye-slim
 
-# Install latest chrome dev and required fonts/libraries
+# Install latest Chrome dependencies & fonts for Google Cloud Run
 RUN apt-get update \
-    && apt-get install -y wget gnupg \
+    && apt-get install -y wget gnupg ca-certificates \
     && wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/googlechrome-linux-keyring.gpg \
     && sh -c 'echo "deb [arch=amd64 signed-by=/usr/share/keyrings/googlechrome-linux-keyring.gpg] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list' \
     && apt-get update \
@@ -10,19 +11,24 @@ RUN apt-get update \
       --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /usr/src/app
+# Set working directory
+WORKDIR /app
 
+# Tell Puppeteer to use the installed Google Chrome
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome \
+    NODE_ENV=production \
+    PORT=8080
+
+# Copy package files and install dependencies
 COPY package*.json ./
-RUN npm install
+RUN npm install --omit=dev
 
+# Copy application source code
 COPY . .
 
-# Set production environment
-ENV PORT=3000
-ENV NODE_ENV=production
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
+# Expose Cloud Run default port
+EXPOSE 8080
 
-EXPOSE 3000
-
-CMD ["node", "api.js"]
-
+# Start Express service
+CMD ["npm", "start"]

@@ -104,20 +104,51 @@ export class ApnaKhataExtractor {
     this.page.setDefaultNavigationTimeout(this.config.options.timeout);
     this.page.setDefaultTimeout(this.config.options.timeout);
 
-    // Auto-accept any browser confirmation / alert dialogs
-    this.page.on('dialog', async (dialog) => {
-      this.log(`💬 Browser Dialog: "${dialog.message()}" -> Auto-Approved`);
-      await dialog.accept().catch(() => {});
-    });
-
+    // 1. Advanced Anti-Detection: Mask Automation Flags & Mimic Real User Browser
     await this.page.evaluateOnNewDocument(() => {
+      // Overwrite navigator.webdriver to undefined
+      Object.defineProperty(navigator, 'webdriver', {
+        get: () => undefined,
+      });
+
+      // Mimic standard Chrome plugins & languages
+      Object.defineProperty(navigator, 'languages', {
+        get: () => ['hi-IN', 'hi', 'en-US', 'en'],
+      });
+
+      Object.defineProperty(navigator, 'plugins', {
+        get: () => [1, 2, 3, 4, 5],
+      });
+
+      // Window chrome runtime mock
+      window.chrome = {
+        runtime: {},
+        app: {},
+        csi: () => {},
+        loadTimes: () => {},
+      };
+
+      // Auto-approve dialogs
       window.confirm = () => true;
       window.alert = () => true;
       window.prompt = () => true;
     });
 
+    // 2. Realistic User-Agent & Client Hints
+    await this.page.setUserAgent(
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
+    );
+
     await this.page.setExtraHTTPHeaders({
-      'Accept-Language': 'hi,en-US,en;q=0.9',
+      'Accept-Language': 'hi-IN,hi;q=0.9,en-US;q=0.8,en;q=0.7',
+      'Sec-Ch-Ua': '"Chromium";v="128", "Not;A=Brand";v="24", "Google Chrome";v="128"',
+      'Sec-Ch-Ua-Mobile': '?0',
+      'Sec-Ch-Ua-Platform': '"Windows"',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'same-origin',
+      'Sec-Fetch-User': '?1',
+      'Upgrade-Insecure-Requests': '1',
     });
   }
 
@@ -705,9 +736,13 @@ export class ApnaKhataExtractor {
 
       // Check if Khata dropdown is populated with numbers
       const is6bReady = await this.page.waitForFunction(() => {
+        const khataSelect = document.querySelector('select[id*="DDL_Khata"], select[name*="DDL_Khata"]');
+        if (khataSelect && khataSelect.options && khataSelect.options.length > 1) {
+          return true;
+        }
         const selects = Array.from(document.querySelectorAll('select'));
         return selects.some((s) => s.options && s.options.length > 2);
-      }, { polling: 50, timeout: 3000 }).catch(() => null);
+      }, { polling: 50, timeout: 4000 }).catch(() => null);
 
       if (is6bReady) {
         this.log('✅ [CONFIRMED] "खाता से" active & Khata dropdown populated!');
@@ -720,69 +755,87 @@ export class ApnaKhataExtractor {
 
     // 3. Select Khata Number in dropdown & set textbox
     this.log(`👉 Step 6c: Placing Khata No. "${searchValue}"...`);
-    const placed = await this.safeEvaluate((targetKhata) => {
-      const cleanTarget = targetKhata.replace(/[^\d]/g, '');
-      const selects = Array.from(document.querySelectorAll('select'));
-      let dropdownSet = false;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const placed = await this.safeEvaluate((targetKhata) => {
+        const cleanTarget = targetKhata.replace(/[^\d]/g, '');
+        let khataSelect = document.querySelector('select[id*="DDL_Khata"], select[name*="DDL_Khata"]');
+        if (!khataSelect) {
+          const selects = Array.from(document.querySelectorAll('select'));
+          khataSelect = selects.find((s) => s.id.toLowerCase().includes('khata') || s.name.toLowerCase().includes('khata')) || selects[selects.length - 1];
+        }
 
-      for (const select of selects) {
-        for (const opt of select.options) {
-          const text = opt.text.trim();
-          const val = opt.value.trim();
-          const cleanOptText = text.replace(/[^\d]/g, '');
-          const cleanOptVal = val.replace(/[^\d]/g, '');
+        let dropdownSet = false;
+        if (khataSelect && khataSelect.options) {
+          for (const opt of khataSelect.options) {
+            const text = opt.text.trim();
+            const val = opt.value.trim();
+            const cleanOptText = text.replace(/[^\d]/g, '');
+            const cleanOptVal = val.replace(/[^\d]/g, '');
 
-          if (
-            cleanOptText === cleanTarget ||
-            cleanOptVal === cleanTarget ||
-            text === targetKhata ||
-            val === targetKhata ||
-            text.startsWith(cleanTarget + ' ') ||
-            text.startsWith(cleanTarget + '-')
-          ) {
-            select.value = opt.value;
-            if (typeof select.onchange === 'function') select.onchange();
-            select.dispatchEvent(new Event('change', { bubbles: true }));
-            window.setTimeout(() => {
-              if (typeof __doPostBack === 'function') {
-                __doPostBack(select.name || select.id.replace(/_/g, '$'), '');
-              }
-            }, 0);
-            dropdownSet = true;
-            break;
+            if (
+              cleanOptText === cleanTarget ||
+              cleanOptVal === cleanTarget ||
+              text === targetKhata ||
+              val === targetKhata ||
+              text.startsWith(cleanTarget + ' ') ||
+              text.startsWith(cleanTarget + '-')
+            ) {
+              khataSelect.value = opt.value;
+              if (typeof khataSelect.onchange === 'function') khataSelect.onchange();
+              khataSelect.dispatchEvent(new Event('change', { bubbles: true }));
+              window.setTimeout(() => {
+                if (typeof __doPostBack === 'function') {
+                  __doPostBack(khataSelect.name || khataSelect.id.replace(/_/g, '$'), '');
+                }
+              }, 0);
+              dropdownSet = true;
+              break;
+            }
           }
         }
-        if (dropdownSet) break;
-      }
 
-      const inputs = Array.from(document.querySelectorAll('input[type="text"], input:not([type])'));
-      for (const inp of inputs) {
-        inp.value = cleanTarget;
-        inp.dispatchEvent(new Event('input', { bubbles: true }));
-        inp.dispatchEvent(new Event('change', { bubbles: true }));
-      }
-
-      return { dropdownSet };
-    }, searchValue);
-
-    this.log(`   Khata placement status: ${JSON.stringify(placed)}`);
-
-    // 4. Reactively wait for UpdateProgress / Loading Spinner to disappear
-    await this.page.waitForFunction(() => {
-      if (typeof Sys !== 'undefined' && Sys.WebForms && Sys.WebForms.PageRequestManager) {
-        if (Sys.WebForms.PageRequestManager.getInstance().get_isInAsyncPostBack()) {
-          return false;
+        const inputs = Array.from(document.querySelectorAll('input[type="text"], input:not([type])'));
+        for (const inp of inputs) {
+          inp.value = cleanTarget;
+          inp.dispatchEvent(new Event('input', { bubbles: true }));
+          inp.dispatchEvent(new Event('change', { bubbles: true }));
         }
-      }
-      const up = document.getElementById('UpdateProgress1') || document.querySelector('[id*="UpdateProgress"]');
-      if (up) {
-        const style = window.getComputedStyle(up);
-        if (style.display !== 'none' && style.visibility !== 'hidden' && up.offsetWidth > 0) {
-          return false;
+
+        return { dropdownSet, optionsCount: khataSelect ? khataSelect.options.length : 0 };
+      }, searchValue);
+
+      this.log(`   Khata placement status (attempt ${attempt}/3): ${JSON.stringify(placed)}`);
+
+      // 4. Reactively wait for UpdateProgress / Loading Spinner and Table Render
+      await this.page.waitForFunction(() => {
+        if (typeof Sys !== 'undefined' && Sys.WebForms && Sys.WebForms.PageRequestManager) {
+          if (Sys.WebForms.PageRequestManager.getInstance().get_isInAsyncPostBack()) {
+            return false;
+          }
         }
+        const up = document.getElementById('UpdateProgress1') || document.querySelector('[id*="UpdateProgress"]');
+        if (up) {
+          const style = window.getComputedStyle(up);
+          if (style.display !== 'none' && style.visibility !== 'hidden' && up.offsetWidth > 0) {
+            return false;
+          }
+        }
+        const hasTable = document.querySelector('table[id*="Kashtkar"], table[id*="Khasra"], table[id*="GridView"]');
+        return Boolean(hasTable);
+      }, { polling: 100, timeout: 4000 }).catch(() => {});
+
+      // Check if table rendered
+      const tableFound = await this.page.evaluate(() => {
+        const t = document.querySelector('table[id*="Kashtkar"], table[id*="Khasra"], table[id*="GridView"]');
+        return Boolean(t && t.rows && t.rows.length > 1);
+      }).catch(() => false);
+
+      if (tableFound) {
+        this.log('✅ [CONFIRMED] Jamabandi table successfully rendered!');
+        break;
       }
-      return true;
-    }, { polling: 50, timeout: 5000 }).catch(() => {});
+      await delay(500);
+    }
 
     // Forcibly hide any lingering loading overlay
     await this.safeEvaluate(() => {
