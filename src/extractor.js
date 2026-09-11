@@ -55,14 +55,33 @@ export class ApnaKhataExtractor {
     this.logs = [];
     this.stepScreenshots = {};
     this.isSharedBrowser = Boolean(config.browser);
+    this.onProgress = typeof config.onProgress === 'function' ? config.onProgress : null;
   }
 
-  log(msg) {
+  log(msg, stage = null, stageName = null) {
     const time = new Date().toLocaleTimeString('hi-IN', { hour12: false });
     const formatted = `[${time}] ${msg}`;
     if (!this.logs) this.logs = [];
     this.logs.push(formatted);
     console.log(formatted);
+
+    if (this.onProgress) {
+      try {
+        this.onProgress({
+          type: 'progress',
+          time,
+          stage: stage || this.currentStage || null,
+          stageName: stageName || this.currentStageName || null,
+          message: msg,
+        });
+      } catch {}
+    }
+  }
+
+  setStage(stage, stageName, msg) {
+    this.currentStage = stage;
+    this.currentStageName = stageName;
+    this.log(msg, stage, stageName);
   }
 
   async initBrowser() {
